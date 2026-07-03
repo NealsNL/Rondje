@@ -5,6 +5,7 @@
 import "server-only";
 import { fetchRoute, BrouterError, type RouteResult } from "./brouter";
 import { destinationPoint, nearestVertexIndex } from "./geo";
+import { trimOverlaps, rebuildTrimmedResult } from "./route-clean";
 import type { LonLat } from "./coords";
 import type { Profile } from "./config";
 
@@ -222,20 +223,46 @@ export async function routeWithoutDetours(
   let result = await fetchRoute(pts, profile, quietness);
   const originalKm = result.distanceKm;
 
+  // Phase 1 — prevent: drop waypoints that cause a detour and re-route, so the
+  // route runs through better roads instead of poking out to a bad point.
   for (let round = 0; round < 3; round++) {
     const bad = detourWaypoints(pts, result.coordinates, (k) => k > 0 && k < pts.length - 1);
     if (bad.size === 0) break;
     const nextPts = pts.filter((_, k) => !bad.has(k));
     if (nextPts.length < 2 || nextPts.length === pts.length) break;
     const nextResult = await fetchRoute(nextPts, profile, quietness);
-    // Removing a spur should only shave a bit off. If cleaning would slash the
-    // route (below half the original), the "spur" is really most of the ride —
-    // e.g. a deliberate there-and-back — so stop and keep what we have.
-    if (nextResult.distanceKm < 0.5 * originalKm) break;
+    // Removing a spur should only shave a bit off. If cleaning would cut the
+    // route down a lot, the "spur" is really part of the ride (dense area, a
+    // barrier forcing an out-and-back), so stop and keep what we have.
+    if (nextResult.distanceKm < 0.7 * originalKm) break;
     const nextIdx = idx.filter((_, k) => !bad.has(k));
     result = nextResult;
     pts = nextPts;
     idx = nextIdx;
+  }
+
+  // Phase 2 — guarantee: cut any remaining self-overlap straight out of the
+  // geometry, even one at the start point (which phase 1 must keep). Drop the
+  // waypoints that sat inside a cut stretch so the markers follow the new line.
+  const trim = trimOverlaps(result.coordinates, result.messages);
+  if (trim) {
+    const trimmed = rebuildTrimmedResult(result, trim.coords, trim.messages);
+    // Same safety floor: never let the cut collapse the ride.
+    if (trimmed.distanceKm >= 0.7 * originalKm) {
+      const inCut = (ci: number) => trim.removed.some(([a, b]) => ci > a && ci <= b);
+      const drop = new Set<number>();
+      for (let k = 1; k < pts.length - 1; k++) {
+        if (inCut(nearestVertexIndex(result.coordinates, pts[k]))) drop.add(k);
+      }
+      if (drop.size > 0) {
+        const nextPts = pts.filter((_, k) => !drop.has(k));
+        if (nextPts.length >= 2) {
+          idx = idx.filter((_, k) => !drop.has(k));
+          pts = nextPts;
+        }
+      }
+      result = trimmed;
+    }
   }
 
   return { points: pts, keptIndices: idx, result };

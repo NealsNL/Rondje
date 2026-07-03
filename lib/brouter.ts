@@ -49,6 +49,8 @@ export type RouteResult = {
   totalTimeSeconds: number | null;
   /** Surface breakdown + colour-coded geometry, if BRouter returned tags. */
   surface: SurfaceInfo | null;
+  /** Raw BRouter per-segment messages (way tags + distances), for cleanup. */
+  messages?: string[][];
 };
 
 export class BrouterError extends Error {}
@@ -145,6 +147,7 @@ export async function fetchRoute(
     ascendMeters: ascend != null ? Number(ascend) : null,
     totalTimeSeconds: Number.isFinite(totalTime) ? totalTime : null,
     surface: buildSurfaceInfo(coordinates, feature.properties?.messages),
+    messages: feature.properties?.messages,
   };
 }
 

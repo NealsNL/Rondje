@@ -22,6 +22,30 @@ function escapeXml(s: string): string {
   });
 }
 
+/**
+ * Build a GPX 1.1 track from route coordinates ([lon, lat, ele?]). We build it
+ * ourselves (instead of taking BRouter's GPX) so the export matches the exact
+ * geometry we cleaned and show on the map.
+ */
+export function buildGpxFromCoords(coords: number[][], name: string): string {
+  const safe = escapeXml(name.trim() || "Route");
+  const pts = coords
+    .map((c) => {
+      const ele = c.length > 2 && Number.isFinite(c[2]) ? `<ele>${c[2].toFixed(1)}</ele>` : "";
+      return `<trkpt lat="${c[1].toFixed(6)}" lon="${c[0].toFixed(6)}">${ele}</trkpt>`;
+    })
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Rondje" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>${safe}</name>
+    <trkseg>
+${pts}
+    </trkseg>
+  </trk>
+</gpx>`;
+}
+
 /** Replace the first <name>…</name> (BRouter puts it inside <trk>). */
 export function setGpxTrackName(gpx: string, name: string): string {
   const safe = escapeXml(name.trim() || "Route");

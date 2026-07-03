@@ -36,8 +36,9 @@ export async function POST(req: NextRequest) {
       clampQuietness(quietness),
     );
     // keptIndices lets the client drop the same detour-causing waypoints, so its
-    // markers match the cleaned route.
-    return NextResponse.json({ ...result, keptIndices });
+    // markers match the cleaned route. messages is server-only cleanup data.
+    const { messages: _messages, ...payload } = result;
+    return NextResponse.json({ ...payload, keptIndices });
   } catch (err) {
     const status = err instanceof BrouterError ? 422 : 500;
     return NextResponse.json(

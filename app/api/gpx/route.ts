@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchGpx, BrouterError } from "@/lib/brouter";
+import { BrouterError } from "@/lib/brouter";
 import { routeWithoutDetours } from "@/lib/generate";
 import { clampQuietness, isProfile } from "@/lib/config";
 import { parseWaypoints } from "@/lib/request";
-import { setGpxTrackName } from "@/lib/gpx";
+import { buildGpxFromCoords } from "@/lib/gpx";
 
 // POST { waypoints, profile, name } -> GPX 1.1 track (as a download).
 export async function POST(req: NextRequest) {
@@ -31,11 +31,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const q = clampQuietness(quietness);
-    // Export the same clean route the app shows: drop detour waypoints first.
-    const { points: clean } = await routeWithoutDetours(points, profile, q);
-    const gpx = await fetchGpx(clean, profile, q);
-    const named = setGpxTrackName(gpx, typeof name === "string" ? name : "Route");
-    return new NextResponse(named, {
+    // Export the exact clean geometry we show (detours dropped, overlaps cut),
+    // not a fresh BRouter GPX that could reintroduce them.
+    const { result } = await routeWithoutDetours(points, profile, q);
+    const gpx = buildGpxFromCoords(result.coordinates, typeof name === "string" ? name : "Route");
+    return new NextResponse(gpx, {
       status: 200,
       headers: { "content-type": "application/gpx+xml; charset=utf-8" },
     });
