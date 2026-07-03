@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import type { LonLat } from "@/lib/coords";
 import { insertIndexForLineClick } from "@/lib/geo";
 import { toGpxFileName } from "@/lib/gpx";
+import ElevationChart from "@/components/ElevationChart";
 import type { Profile } from "@/lib/config";
 import type { Direction } from "@/lib/generate";
 
@@ -322,6 +323,13 @@ export default function Home() {
           {info && <p className="hint">{info}</p>}
           {error && <p className="error">{error}</p>}
         </div>
+
+        {routeCoords && routeCoords.length > 1 && (
+          <div className="section">
+            <p className="section-title">Hoogteprofiel</p>
+            <ElevationChart coords={routeCoords} ascentMeters={ascendMeters} />
+          </div>
+        )}
 
         <div className="section">
           <p className="section-title">Ondergrond</p>
