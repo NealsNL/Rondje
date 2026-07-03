@@ -13,6 +13,7 @@ type Props = {
   segments: ColoredSegment[] | null;
   arrows: { lon: number; lat: number; bearing: number }[];
   fitToken: number;
+  flyTo: { lon: number; lat: number; nonce: number } | null;
   hoverPoint: number[] | null;
   onMapClick: (p: LonLat) => void;
   onLineClick: (p: LonLat) => void;
@@ -224,6 +225,16 @@ export default function MapView(props: Props) {
       { padding: 64, duration: 600, maxZoom: 15 },
     );
   }, [props.fitToken, props.segments, ready]);
+
+  // --- fly to a searched place ---
+  const lastFlyRef = useRef(0);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !props.flyTo) return;
+    if (props.flyTo.nonce === lastFlyRef.current) return;
+    lastFlyRef.current = props.flyTo.nonce;
+    map.flyTo({ center: [props.flyTo.lon, props.flyTo.lat], zoom: 13, duration: 800 });
+  }, [props.flyTo, ready]);
 
   // --- move the elevation-hover marker ---
   useEffect(() => {

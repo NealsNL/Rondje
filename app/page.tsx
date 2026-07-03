@@ -73,6 +73,13 @@ export default function Home() {
   const [closeLoop, setCloseLoop] = useState(false);
   // Bumped to ask the map to zoom to fit the whole route (generate/load/import).
   const [fitToken, setFitToken] = useState(0);
+  // Undo history: number of stored previous waypoint states.
+  const [histLen, setHistLen] = useState(0);
+  // Place/address search.
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ name: string; lon: number; lat: number }[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [flyTo, setFlyTo] = useState<{ lon: number; lat: number; nonce: number } | null>(null);
   // Generator settings, remembered only when the route was generated.
   const [genMeta, setGenMeta] = useState<{ direction: Direction; targetKm: number } | null>(
     null,
@@ -87,6 +94,33 @@ export default function Home() {
   tripTypeRef.current = tripType;
   const closeLoopRef = useRef(closeLoop);
   closeLoopRef.current = closeLoop;
+
+  // Snapshot the current waypoints before an edit so it can be undone.
+  const historyRef = useRef<LonLat[][]>([]);
+  const pushHistory = useCallback(() => {
+    historyRef.current = [...historyRef.current.slice(-49), wpRef.current];
+    setHistLen(historyRef.current.length);
+  }, []);
+  const undo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.length === 0) return;
+    historyRef.current = h.slice(0, -1);
+    setHistLen(historyRef.current.length);
+    setWaypoints(h[h.length - 1]);
+    setInfo(null);
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return; // don't hijack typing
+      if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        undo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo]);
 
   // Check the routing server on load.
   useEffect(() => {
@@ -162,6 +196,7 @@ export default function Home() {
   // click adds the next point the route rides through.
   const handleMapClick = useCallback((p: LonLat) => {
     setInfo(null);
+    pushHistory();
     if (tripTypeRef.current === "loop") {
       setWaypoints([p]);
     } else {
@@ -173,6 +208,7 @@ export default function Home() {
     const wps = wpRef.current;
     const coords = routeRef.current;
     if (!coords) return;
+    pushHistory();
     const closing =
       tripTypeRef.current === "loop" ||
       (tripTypeRef.current === "ptp" && closeLoopRef.current);
@@ -183,15 +219,24 @@ export default function Home() {
     setWaypoints(next);
   }, []);
 
-  const handleWaypointMove = useCallback((index: number, p: LonLat) => {
-    setWaypoints((wps) => wps.map((w, i) => (i === index ? p : w)));
-  }, []);
+  const handleWaypointMove = useCallback(
+    (index: number, p: LonLat) => {
+      pushHistory();
+      setWaypoints((wps) => wps.map((w, i) => (i === index ? p : w)));
+    },
+    [pushHistory],
+  );
 
-  const handleWaypointDelete = useCallback((index: number) => {
-    setWaypoints((wps) => (wps.length <= 1 ? wps : wps.filter((_, i) => i !== index)));
-  }, []);
+  const handleWaypointDelete = useCallback(
+    (index: number) => {
+      pushHistory();
+      setWaypoints((wps) => (wps.length <= 1 ? wps : wps.filter((_, i) => i !== index)));
+    },
+    [pushHistory],
+  );
 
   const clearRoute = useCallback(() => {
+    pushHistory();
     setWaypoints([]);
     setError(null);
     setInfo(null);
@@ -200,8 +245,45 @@ export default function Home() {
   }, []);
 
   const reverseRoute = useCallback(() => {
+    pushHistory();
     setWaypoints((wps) => (wps.length < 2 ? wps : [...wps].reverse()));
-  }, []);
+  }, [pushHistory]);
+
+  // Free place/address search via OpenStreetMap Nominatim (NL + BE).
+  const doSearch = useCallback(async () => {
+    const q = query.trim();
+    if (!q) return;
+    setSearching(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=nl&countrycodes=nl,be&q=${encodeURIComponent(q)}`,
+      );
+      const d = (await r.json()) as { display_name: string; lon: string; lat: string }[];
+      const list = (Array.isArray(d) ? d : []).map((x) => ({
+        name: x.display_name,
+        lon: Number(x.lon),
+        lat: Number(x.lat),
+      }));
+      setResults(list);
+      if (list.length === 0) setInfo("Geen plaats gevonden.");
+    } catch {
+      setError("Zoeken lukte niet. Is er internet?");
+    } finally {
+      setSearching(false);
+    }
+  }, [query]);
+
+  const pickResult = useCallback(
+    (res: { name: string; lon: number; lat: number }) => {
+      setFlyTo({ lon: res.lon, lat: res.lat, nonce: Date.now() });
+      setQuery(res.name.split(",")[0]);
+      setResults([]);
+      setInfo(null);
+    },
+    [],
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const onGpxFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -216,6 +298,7 @@ export default function Home() {
       setGenMeta(null);
       setCloseLoop(false);
       setRouteName(file.name.replace(/\.gpx$/i, ""));
+      pushHistory();
       setWaypoints(sampleTrackToWaypoints(track, 24));
       setFitToken((n) => n + 1);
       setInfo("GPX geïmporteerd. Versleep de punten om bij te sturen.");
@@ -238,6 +321,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Genereren mislukt.");
+      pushHistory();
       setTripType("loop");
       setCloseLoop(false);
       setWaypoints(d.waypoints);
@@ -341,6 +425,7 @@ export default function Home() {
       const r = await fetch(`/api/routes/${id}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Laden mislukt.");
+      pushHistory();
       setProfile(d.profile);
       setTripType(d.tripType === "ptp" ? "ptp" : "loop");
       setCloseLoop(false);
@@ -397,6 +482,7 @@ export default function Home() {
         segments={segments}
         arrows={arrows}
         fitToken={fitToken}
+        flyTo={flyTo}
         hoverPoint={hoverPoint}
         onMapClick={handleMapClick}
         onLineClick={handleLineClick}
@@ -451,6 +537,36 @@ export default function Home() {
               ? "Routeserver niet bereikbaar"
               : "Routeserver controleren…"}
         </p>
+
+        <div className="section">
+          <div className="search">
+            <input
+              type="text"
+              placeholder="Zoek plaats of adres…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") doSearch();
+              }}
+            />
+            <button
+              className="btn"
+              onClick={doSearch}
+              disabled={searching || !query.trim()}
+            >
+              {searching ? <span className="spinner" /> : "Zoek"}
+            </button>
+          </div>
+          {results.length > 0 && (
+            <ul className="search-results">
+              {results.map((res, i) => (
+                <li key={i} onClick={() => pickResult(res)} title={res.name}>
+                  {res.name}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <div className="section">
           <p className="section-title">Rittype</p>
@@ -681,6 +797,11 @@ export default function Home() {
               )}
             </div>
           )}
+          <div className="btn-row">
+            <button className="btn" onClick={undo} disabled={histLen === 0}>
+              ↶ Ongedaan maken
+            </button>
+          </div>
           <div className="btn-row">
             <button className="btn" onClick={reverseRoute} disabled={!hasRoute}>
               Omdraaien
