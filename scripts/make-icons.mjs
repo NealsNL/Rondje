@@ -1,43 +1,56 @@
-// Generates the PWA app icons from a small inline SVG (green tile with a white
-// route + start/end dots). Run once after changing the design:
+// Generates the PWA app icons from the brand logo (brand/logo.png).
+// The source is an AI-generated tile with a white border + drop shadow; we trim
+// that away, clip the rounded-corner white to transparent, and place the mark on
+// a solid green square for a clean full-bleed icon. Run after changing the logo:
 //   node scripts/make-icons.mjs
-// The resulting PNGs live in public/ and app/ and are committed to the repo.
 
 import sharp from "sharp";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const src = join(root, "brand", "logo.png");
 const pub = join(root, "public");
 const appDir = join(root, "app");
+const GREEN = "#16a34a";
+const N = 1000; // work at 1000px, then downscale
 
-function svg({ square }) {
-  const bg = square
-    ? `<rect width="512" height="512" fill="#16a34a"/>`
-    : `<rect width="512" height="512" rx="112" ry="112" fill="#16a34a"/>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-    ${bg}
-    <path d="M132 372 C 250 350 196 236 292 224 C 372 214 300 116 388 140"
-          fill="none" stroke="#ffffff" stroke-width="30"
-          stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="132" cy="372" r="34" fill="#ffffff"/>
-    <circle cx="132" cy="372" r="15" fill="#16a34a"/>
-    <circle cx="388" cy="140" r="30" fill="#ffffff"/>
-  </svg>`;
+async function buildBase() {
+  // 1) remove the white border + soft shadow around the tile
+  const trimmed = await sharp(src).trim({ background: "#ffffff", threshold: 60 }).toBuffer();
+  const meta = await sharp(trimmed).metadata();
+  // 2) crop the centre (bike + route on green), well inside the tile's rounded
+  // corners and edge highlight, so no white/outline remains — then let that green
+  // fill the whole square for a clean full-bleed icon.
+  const insetX = Math.round(meta.width * 0.12);
+  const insetY = Math.round(meta.height * 0.12);
+  const core = await sharp(trimmed)
+    .extract({
+      left: insetX,
+      top: insetY,
+      width: meta.width - 2 * insetX,
+      height: meta.height - 2 * insetY,
+    })
+    .resize(N, N, { fit: "fill" })
+    .toBuffer();
+  // 3) flatten onto solid green as a safety net against any stray transparency
+  return sharp({ create: { width: N, height: N, channels: 4, background: GREEN } })
+    .composite([{ input: core }])
+    .flatten({ background: GREEN })
+    .png()
+    .toBuffer();
 }
 
-async function render(svgString, size, outFile) {
-  await sharp(Buffer.from(svgString)).resize(size, size).png().toFile(outFile);
-  console.log("  ->", outFile);
+const base = await buildBase();
+const outputs = [
+  [192, join(pub, "icon-192.png")],
+  [512, join(pub, "icon-512.png")],
+  [512, join(pub, "maskable-512.png")],
+  [180, join(pub, "apple-icon.png")],
+  [256, join(appDir, "icon.png")],
+];
+for (const [size, file] of outputs) {
+  await sharp(base).resize(size, size).png().toFile(file);
+  console.log("  ->", file);
 }
-
-const rounded = svg({ square: false });
-const solid = svg({ square: true });
-
-await render(rounded, 192, join(pub, "icon-192.png"));
-await render(rounded, 512, join(pub, "icon-512.png"));
-await render(solid, 512, join(pub, "maskable-512.png"));
-await render(solid, 180, join(pub, "apple-icon.png"));
-await render(rounded, 256, join(appDir, "icon.png")); // browser tab / favicon
-
 console.log("Klaar.");
