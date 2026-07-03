@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { LonLat } from "@/lib/coords";
 import { insertIndexForLineClick } from "@/lib/geo";
-import { toGpxFileName } from "@/lib/gpx";
+import { toGpxFileName, parseGpxTrack, sampleTrackToWaypoints } from "@/lib/gpx";
 import { computeStats, formatDuration } from "@/lib/stats";
 import ElevationChart from "@/components/ElevationChart";
 import type { Profile } from "@/lib/config";
@@ -175,6 +175,29 @@ export default function Home() {
     setError(null);
     setInfo(null);
     setGenMeta(null);
+  }, []);
+
+  const reverseRoute = useCallback(() => {
+    setWaypoints((wps) => (wps.length < 2 ? wps : [...wps].reverse()));
+  }, []);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const onGpxFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-importing the same file
+    if (!file) return;
+    setError(null);
+    setInfo(null);
+    try {
+      const track = parseGpxTrack(await file.text());
+      if (track.length < 2) throw new Error("Geen route gevonden in dit GPX-bestand.");
+      setGenMeta(null);
+      setRouteName(file.name.replace(/\.gpx$/i, ""));
+      setWaypoints(sampleTrackToWaypoints(track, 24));
+      setInfo("GPX geïmporteerd. Versleep de punten om bij te sturen.");
+    } catch (err) {
+      setError((err as Error).message || "Kon dit GPX-bestand niet lezen.");
+    }
   }, []);
 
   const generate = useCallback(async () => {
@@ -490,6 +513,18 @@ export default function Home() {
               {exporting ? "Exporteren…" : "Exporteer GPX"}
             </button>
           </div>
+          <div className="btn-row">
+            <button className="btn" onClick={() => fileInputRef.current?.click()}>
+              Importeer GPX
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".gpx"
+            onChange={onGpxFile}
+            style={{ display: "none" }}
+          />
         </div>
 
         {savedRoutes.length > 0 && (
@@ -524,6 +559,9 @@ export default function Home() {
 
         <div className="section">
           <div className="btn-row">
+            <button className="btn" onClick={reverseRoute} disabled={!hasRoute}>
+              Omdraaien
+            </button>
             <button className="btn" onClick={clearRoute} disabled={waypoints.length === 0}>
               Nieuwe route
             </button>
