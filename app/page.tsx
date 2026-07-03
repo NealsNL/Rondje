@@ -13,6 +13,16 @@ const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
 type Health = "checking" | "ok" | "down";
 
+type SavedRouteSummary = {
+  id: number;
+  name: string;
+  profile: Profile;
+  distanceKm: number | null;
+  direction: Direction | null;
+  targetKm: number | null;
+  createdAt: string;
+};
+
 // Compass layout as a 3x3 grid; "" cells are spacers.
 const COMPASS: (Direction | "")[] = ["NW", "N", "NE", "W", "", "E", "SW", "S", "SE"];
 
@@ -32,9 +42,15 @@ export default function Home() {
   const [targetKm, setTargetKm] = useState(40);
   const [generating, setGenerating] = useState(false);
 
-  // Route name (used for GPX export and saving)
+  // Route name + saving/exporting
   const [routeName, setRouteName] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedRoutes, setSavedRoutes] = useState<SavedRouteSummary[]>([]);
+  // Generator settings, remembered only when the route was generated.
+  const [genMeta, setGenMeta] = useState<{ direction: Direction; targetKm: number } | null>(
+    null,
+  );
 
   // Latest waypoints/route, so map callbacks read fresh values.
   const wpRef = useRef(waypoints);
@@ -49,6 +65,14 @@ export default function Home() {
       .then((d) => setHealth(d.ok ? "ok" : "down"))
       .catch(() => setHealth("down"));
   }, []);
+
+  const refreshSaved = useCallback(() => {
+    fetch("/api/routes")
+      .then((r) => r.json())
+      .then((d) => setSavedRoutes(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => refreshSaved(), [refreshSaved]);
 
   // Re-route whenever the waypoints or profile change.
   useEffect(() => {
@@ -121,6 +145,7 @@ export default function Home() {
     setWaypoints([]);
     setError(null);
     setInfo(null);
+    setGenMeta(null);
   }, []);
 
   const generate = useCallback(async () => {
@@ -138,6 +163,7 @@ export default function Home() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Genereren mislukt.");
       setWaypoints(d.waypoints);
+      setGenMeta({ direction, targetKm });
       if (!d.withinTolerance) {
         setInfo(
           `Beste rondrit is ${d.distanceKm.toFixed(1)} km (doel ${targetKm} km). Versleep punten om bij te sturen.`,
@@ -185,6 +211,75 @@ export default function Home() {
       setExporting(false);
     }
   }, [profile, routeName]);
+
+  const saveRoute = useCallback(async () => {
+    if (wpRef.current.length < 2) return;
+    const name = routeName.trim();
+    if (!name) {
+      setError("Geef de route eerst een naam.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const r = await fetch("/api/routes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+          profile,
+          waypoints: wpRef.current,
+          distanceKm,
+          direction: genMeta?.direction ?? null,
+          targetKm: genMeta?.targetKm ?? null,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Opslaan mislukt.");
+      setInfo(`Route "${d.name}" opgeslagen.`);
+      refreshSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }, [routeName, profile, distanceKm, genMeta, refreshSaved]);
+
+  const loadRoute = useCallback(async (id: number) => {
+    setError(null);
+    setInfo(null);
+    try {
+      const r = await fetch(`/api/routes/${id}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Laden mislukt.");
+      setProfile(d.profile);
+      setRouteName(d.name);
+      if (d.direction && d.targetKm) {
+        setGenMeta({ direction: d.direction, targetKm: d.targetKm });
+        setDirection(d.direction);
+        setTargetKm(d.targetKm);
+      } else {
+        setGenMeta(null);
+      }
+      setWaypoints(d.waypoints);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const deleteSaved = useCallback(
+    async (id: number, e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        await fetch(`/api/routes/${id}`, { method: "DELETE" });
+        refreshSaved();
+      } catch {
+        /* ignore */
+      }
+    },
+    [refreshSaved],
+  );
 
   const hasStart = waypoints.length >= 1;
   const hasRoute = waypoints.length >= 2;
@@ -301,11 +396,51 @@ export default function Home() {
               onChange={(e) => setRouteName(e.target.value)}
             />
           </div>
-          <button className="btn" onClick={exportGpx} disabled={!hasRoute || exporting}>
-            {exporting ? <span className="spinner" /> : null}
-            {exporting ? "Exporteren…" : "Exporteer GPX"}
-          </button>
+          <div className="btn-row">
+            <button
+              className="btn primary"
+              onClick={saveRoute}
+              disabled={!hasRoute || saving}
+            >
+              {saving ? <span className="spinner" /> : null}
+              {saving ? "Opslaan…" : "Bewaar route"}
+            </button>
+            <button className="btn" onClick={exportGpx} disabled={!hasRoute || exporting}>
+              {exporting ? <span className="spinner" /> : null}
+              {exporting ? "Exporteren…" : "Exporteer GPX"}
+            </button>
+          </div>
         </div>
+
+        {savedRoutes.length > 0 && (
+          <div className="section">
+            <p className="section-title">Opgeslagen routes</p>
+            <ul className="route-list">
+              {savedRoutes.map((r) => (
+                <li key={r.id}>
+                  <span
+                    className="name"
+                    title="Klik om te laden"
+                    onClick={() => loadRoute(r.id)}
+                  >
+                    {r.name}
+                  </span>
+                  <span className="meta">
+                    {r.distanceKm != null ? `${r.distanceKm.toFixed(1)} km · ` : ""}
+                    {r.profile === "paved" ? "Verhard" : "Onverhard"}
+                  </span>
+                  <button
+                    className="icon-btn"
+                    title="Verwijderen"
+                    onClick={(e) => deleteSaved(r.id, e)}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="section">
           <div className="btn-row">
