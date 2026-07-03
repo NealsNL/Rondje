@@ -54,4 +54,13 @@ for (const [size, file] of outputs) {
   await sharp(base).resize(size, size).png().toFile(file);
   console.log("  ->", file);
 }
+
+// Direction arrow used on the map (white arrow, dark outline, transparent bg).
+const arrowSvg =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">' +
+  '<path d="M20 5 L33 34 L20 27 L7 34 Z" fill="#ffffff" stroke="#0f172a" ' +
+  'stroke-width="3" stroke-linejoin="round"/></svg>';
+await sharp(Buffer.from(arrowSvg)).png().toFile(join(pub, "arrow.png"));
+console.log("  ->", join(pub, "arrow.png"));
+
 console.log("Klaar.");

@@ -48,30 +48,6 @@ function lineData(segments: ColoredSegment[]): FeatureCollection {
   };
 }
 
-// A white chevron (pointing up) with a dark halo, rotated per-feature to show
-// the travel direction along the route.
-function directionArrow(): ImageData {
-  const s = 44;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = s;
-  const ctx = canvas.getContext("2d")!;
-  ctx.translate(s / 2, s / 2);
-  const chevron = (color: string, width: number) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    ctx.moveTo(-11, 6);
-    ctx.lineTo(0, -9);
-    ctx.lineTo(11, 6);
-    ctx.stroke();
-  };
-  chevron("#0f172a", 11);
-  chevron("#ffffff", 6);
-  return ctx.getImageData(0, 0, s, s);
-}
-
 export default function MapView(props: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -117,24 +93,32 @@ export default function MapView(props: Props) {
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#000", "line-width": 22, "line-opacity": 0 },
       });
-      // Direction arrows along the route (which way it goes).
-      if (!map.hasImage("arrow")) {
-        map.addImage("arrow", directionArrow(), { pixelRatio: 2 });
-      }
+      // Direction arrows along the route (which way it goes). The source+layer
+      // are added now; the icon is a small SVG loaded as an image (reliable
+      // across browsers) and registered as soon as it decodes.
       map.addSource("arrows", { type: "geojson", data: EMPTY });
       map.addLayer({
         id: "route-arrows",
         type: "symbol",
         source: "arrows",
         layout: {
-          "icon-image": "arrow",
-          "icon-size": 0.7,
+          // Unique name: the base style already ships an image called "arrow".
+          "icon-image": "rondje-arrow",
+          "icon-size": 0.6,
           "icon-rotate": ["get", "bearing"],
           "icon-rotation-alignment": "map",
-          "icon-allow-overlap": false,
-          "icon-padding": 4,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
         },
       });
+      map
+        .loadImage("/arrow.png")
+        .then((res) => {
+          if (res?.data && mapRef.current && !mapRef.current.hasImage("rondje-arrow")) {
+            mapRef.current.addImage("rondje-arrow", res.data);
+          }
+        })
+        .catch(() => {});
       // Marker that follows the elevation-chart hover.
       map.addSource("hover", { type: "geojson", data: EMPTY });
       map.addLayer({
@@ -191,11 +175,16 @@ export default function MapView(props: Props) {
     const src = map.getSource("arrows") as maplibregl.GeoJSONSource | undefined;
     src?.setData({
       type: "FeatureCollection",
-      features: props.arrows.map((a) => ({
-        type: "Feature",
-        properties: { bearing: a.bearing },
-        geometry: { type: "Point", coordinates: [a.lon, a.lat] },
-      })),
+      features: props.arrows
+        .filter(
+          (a) =>
+            Number.isFinite(a.lon) && Number.isFinite(a.lat) && Number.isFinite(a.bearing),
+        )
+        .map((a) => ({
+          type: "Feature",
+          properties: { bearing: a.bearing },
+          geometry: { type: "Point", coordinates: [a.lon, a.lat] },
+        })),
     });
   }, [props.arrows, ready]);
 
