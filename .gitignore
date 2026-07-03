@@ -13,6 +13,9 @@ next-env.d.ts
 *.pem
 npm-debug.log*
 
+# local dev-server logs
+.nextdev*.log
+
 # local env files
 .env
 .env*.local
