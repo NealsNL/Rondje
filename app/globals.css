@@ -476,3 +476,84 @@ button {
   pointer-events: none;
   z-index: 2;
 }
+
+/* Mobile bottom-sheet handle (hidden on desktop) */
+.panel-handle {
+  display: none;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  padding: 10px 16px 12px;
+  cursor: pointer;
+}
+.panel-handle .grip {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  margin: 0 auto;
+}
+.handle-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.handle-label {
+  font-size: 14px;
+  color: var(--text);
+}
+.handle-label strong {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.handle-caret {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* On phones the control panel becomes a bottom sheet so the map stays visible.
+   Collapsed by default (just the handle); tap to expand. */
+@media (max-width: 640px) {
+  .panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 85vh;
+    padding: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-handle {
+    display: flex;
+    flex: 0 0 auto;
+  }
+  .panel-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+  }
+  .panel.is-collapsed {
+    max-height: none;
+  }
+  .panel.is-collapsed .panel-body {
+    display: none;
+  }
+  .panel-body h1 {
+    margin-top: 4px;
+  }
+  /* 16px inputs keep iOS from zooming in when a field is tapped */
+  .panel input,
+  .panel select {
+    font-size: 16px;
+  }
+}

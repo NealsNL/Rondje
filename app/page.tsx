@@ -67,6 +67,8 @@ export default function Home() {
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedRoutes, setSavedRoutes] = useState<SavedRouteSummary[]>([]);
+  // On phones the panel is a bottom sheet; this tracks whether it's expanded.
+  const [panelOpen, setPanelOpen] = useState(false);
   // Generator settings, remembered only when the route was generated.
   const [genMeta, setGenMeta] = useState<{ direction: Direction; targetKm: number } | null>(
     null,
@@ -366,7 +368,33 @@ export default function Home() {
         onWaypointDelete={handleWaypointDelete}
       />
 
-      <div className="panel">
+      <div className={`panel ${panelOpen ? "is-open" : "is-collapsed"}`}>
+        <button
+          type="button"
+          className="panel-handle"
+          onClick={() => setPanelOpen((v) => !v)}
+          aria-expanded={panelOpen}
+          aria-label={panelOpen ? "Paneel sluiten" : "Paneel openen"}
+        >
+          <span className="grip" aria-hidden />
+          <span className="handle-info">
+            <span className="handle-label">
+              {distanceKm != null ? (
+                <>
+                  <strong>{distanceKm.toFixed(1)} km</strong>
+                  {ascendMeters != null ? ` · ↑ ${Math.round(ascendMeters)} m` : ""}
+                </>
+              ) : (
+                "Rondje — tik om een route te plannen"
+              )}
+            </span>
+            <span className="handle-caret" aria-hidden>
+              {panelOpen ? "▾" : "▴"}
+            </span>
+          </span>
+        </button>
+
+        <div className="panel-body">
         <h1>Rondje</h1>
         <p className="subtitle">
           <span
@@ -607,6 +635,7 @@ export default function Home() {
                   ? "Klik om tussenstops toe te voegen — de route keert terug naar de start. Sleep punten of klik op de route om bij te sturen."
                   : "Klik om nog een tussenstop toe te voegen (de laatste is het eindpunt). Sleep of klik op de route om bij te sturen."}
           </p>
+        </div>
         </div>
       </div>
     </>
