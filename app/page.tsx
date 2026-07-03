@@ -367,7 +367,7 @@ export default function Home() {
       />
 
       <div className="panel">
-        <h1>Routeplanner</h1>
+        <h1>Rondje</h1>
         <p className="subtitle">
           <span
             className={`status-dot ${health === "ok" ? "ok" : health === "down" ? "bad" : "wait"}`}

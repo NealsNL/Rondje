@@ -1,0 +1,22 @@
+# Keep the build context small. The big BRouter assets (Java runtime, map
+# segments, engine jar) are NOT copied in; the runtime image downloads a Linux
+# Java + the map segments itself. brouter/profiles2 IS kept (it's small text).
+node_modules
+.next
+out
+.git
+.gitignore
+data
+*.gpx
+npm-debug.log*
+
+# BRouter binaries fetched inside the image / Windows-only runtime
+brouter/jre
+brouter/segments4
+brouter/*.jar
+
+# docs / local-only helpers not needed to run
+README.md
+DEPLOY.md
+start.bat
+start-brouter.bat

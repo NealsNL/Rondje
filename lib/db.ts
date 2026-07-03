@@ -26,7 +26,9 @@ const globalForDb = globalThis as unknown as { _routeDb?: Database.Database };
 
 function getDb(): Database.Database {
   if (globalForDb._routeDb) return globalForDb._routeDb;
-  const dir = join(process.cwd(), "data");
+  // In the container this points at a mounted volume (DATA_DIR=/data) so saved
+  // routes survive redeploys; locally it defaults to ./data.
+  const dir = process.env.DATA_DIR || join(process.cwd(), "data");
   mkdirSync(dir, { recursive: true });
   const db = new Database(join(dir, "routes.db"));
   db.pragma("journal_mode = WAL");

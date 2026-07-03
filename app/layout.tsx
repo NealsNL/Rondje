@@ -1,9 +1,21 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import RegisterSW from "../components/RegisterSW";
 
 export const metadata: Metadata = {
-  title: "Routeplanner",
+  title: "Rondje",
   description: "Fietsroutes tekenen, genereren en exporteren voor Garmin",
+  applicationName: "Rondje",
+  appleWebApp: { capable: true, title: "Rondje", statusBarStyle: "default" },
+  formatDetection: { telephone: false },
+  icons: { apple: "/apple-icon.png" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#16a34a",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -13,7 +25,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="nl">
-      <body>{children}</body>
+      <body>
+        {children}
+        <RegisterSW />
+      </body>
     </html>
   );
 }
