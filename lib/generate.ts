@@ -295,9 +295,19 @@ export async function generateLoop(opts: {
     );
   }
 
+  // Generated vias sit on a geometric circle, which can land in a field far from
+  // the road BRouter actually snapped the route to — leaving a marker floating
+  // off-route. Move every waypoint onto the nearest point of the real route so
+  // each marker sits on a road you ride along.
+  const coords = best.result.coordinates;
+  const waypoints = best.open.map((wp) => {
+    const c = coords[nearestVertexIndex(coords, wp)];
+    return { lon: c[0], lat: c[1] };
+  });
+
   return {
     // Open loop; the app closes it back to the start in "rondje" mode.
-    waypoints: best.open,
+    waypoints,
     distanceKm: best.result.distanceKm,
     ascendMeters: best.result.ascendMeters,
     coordinates: best.result.coordinates,
