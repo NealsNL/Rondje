@@ -11,6 +11,8 @@ type Props = {
   waypoints: LonLat[];
   loop: boolean;
   segments: ColoredSegment[] | null;
+  arrows: { lon: number; lat: number; bearing: number }[];
+  fitToken: number;
   hoverPoint: number[] | null;
   onMapClick: (p: LonLat) => void;
   onLineClick: (p: LonLat) => void;
@@ -43,6 +45,30 @@ function lineData(segments: ColoredSegment[]): FeatureCollection {
       geometry: { type: "LineString", coordinates: s.coordinates },
     })),
   };
+}
+
+// A white chevron (pointing up) with a dark halo, rotated per-feature to show
+// the travel direction along the route.
+function directionArrow(): ImageData {
+  const s = 44;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = s;
+  const ctx = canvas.getContext("2d")!;
+  ctx.translate(s / 2, s / 2);
+  const chevron = (color: string, width: number) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(-11, 6);
+    ctx.lineTo(0, -9);
+    ctx.lineTo(11, 6);
+    ctx.stroke();
+  };
+  chevron("#0f172a", 11);
+  chevron("#ffffff", 6);
+  return ctx.getImageData(0, 0, s, s);
 }
 
 export default function MapView(props: Props) {
@@ -89,6 +115,24 @@ export default function MapView(props: Props) {
         source: "route",
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#000", "line-width": 22, "line-opacity": 0 },
+      });
+      // Direction arrows along the route (which way it goes).
+      if (!map.hasImage("arrow")) {
+        map.addImage("arrow", directionArrow(), { pixelRatio: 2 });
+      }
+      map.addSource("arrows", { type: "geojson", data: EMPTY });
+      map.addLayer({
+        id: "route-arrows",
+        type: "symbol",
+        source: "arrows",
+        layout: {
+          "icon-image": "arrow",
+          "icon-size": 0.7,
+          "icon-rotate": ["get", "bearing"],
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": false,
+          "icon-padding": 4,
+        },
       });
       // Marker that follows the elevation-chart hover.
       map.addSource("hover", { type: "geojson", data: EMPTY });
@@ -138,6 +182,48 @@ export default function MapView(props: Props) {
     const src = map.getSource("route") as maplibregl.GeoJSONSource | undefined;
     src?.setData(props.segments?.length ? lineData(props.segments) : EMPTY);
   }, [props.segments, ready]);
+
+  // --- draw / update the direction arrows ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const src = map.getSource("arrows") as maplibregl.GeoJSONSource | undefined;
+    src?.setData({
+      type: "FeatureCollection",
+      features: props.arrows.map((a) => ({
+        type: "Feature",
+        properties: { bearing: a.bearing },
+        geometry: { type: "Point", coordinates: [a.lon, a.lat] },
+      })),
+    });
+  }, [props.arrows, ready]);
+
+  // --- zoom to fit the whole route when asked (generate / load / import) ---
+  const lastFitRef = useRef(props.fitToken);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    if (props.fitToken === lastFitRef.current) return;
+    const segs = props.segments;
+    if (!segs?.length) return; // wait until the new route is drawn
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+    for (const s of segs)
+      for (const c of s.coordinates) {
+        if (c[0] < minLng) minLng = c[0];
+        if (c[0] > maxLng) maxLng = c[0];
+        if (c[1] < minLat) minLat = c[1];
+        if (c[1] > maxLat) maxLat = c[1];
+      }
+    if (minLng === Infinity) return;
+    lastFitRef.current = props.fitToken;
+    map.fitBounds(
+      [
+        [minLng, minLat],
+        [maxLng, maxLat],
+      ],
+      { padding: 64, duration: 600, maxZoom: 15 },
+    );
+  }, [props.fitToken, props.segments, ready]);
 
   // --- move the elevation-hover marker ---
   useEffect(() => {

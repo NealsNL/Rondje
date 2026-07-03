@@ -47,6 +47,7 @@ const outputs = [
   [512, join(pub, "icon-512.png")],
   [512, join(pub, "maskable-512.png")],
   [180, join(pub, "apple-icon.png")],
+  [180, join(appDir, "apple-icon.png")], // Next file convention -> apple-touch-icon
   [256, join(appDir, "icon.png")],
 ];
 for (const [size, file] of outputs) {

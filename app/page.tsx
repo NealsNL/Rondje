@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { LonLat } from "@/lib/coords";
-import { insertIndexForLineClick } from "@/lib/geo";
+import { insertIndexForLineClick, arrowsAlongRoute } from "@/lib/geo";
 import { toGpxFileName, parseGpxTrack, sampleTrackToWaypoints } from "@/lib/gpx";
 import { computeStats, formatDuration } from "@/lib/stats";
 import ElevationChart from "@/components/ElevationChart";
@@ -71,6 +71,8 @@ export default function Home() {
   const [panelOpen, setPanelOpen] = useState(false);
   // In "Van A naar B" mode, whether the drawn route closes back to the start.
   const [closeLoop, setCloseLoop] = useState(false);
+  // Bumped to ask the map to zoom to fit the whole route (generate/load/import).
+  const [fitToken, setFitToken] = useState(0);
   // Generator settings, remembered only when the route was generated.
   const [genMeta, setGenMeta] = useState<{ direction: Direction; targetKm: number } | null>(
     null,
@@ -215,6 +217,7 @@ export default function Home() {
       setCloseLoop(false);
       setRouteName(file.name.replace(/\.gpx$/i, ""));
       setWaypoints(sampleTrackToWaypoints(track, 24));
+      setFitToken((n) => n + 1);
       setInfo("GPX geïmporteerd. Versleep de punten om bij te sturen.");
     } catch (err) {
       setError((err as Error).message || "Kon dit GPX-bestand niet lezen.");
@@ -239,6 +242,7 @@ export default function Home() {
       setCloseLoop(false);
       setWaypoints(d.waypoints);
       setGenMeta({ direction, targetKm });
+      setFitToken((n) => n + 1);
       if (!d.withinTolerance) {
         setInfo(
           `Beste rondrit is ${d.distanceKm.toFixed(1)} km (doel ${targetKm} km). Versleep punten om bij te sturen.`,
@@ -349,6 +353,7 @@ export default function Home() {
         setGenMeta(null);
       }
       setWaypoints(d.waypoints);
+      setFitToken((n) => n + 1);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -371,6 +376,10 @@ export default function Home() {
     () => (routeCoords ? computeStats(routeCoords, ascendMeters) : null),
     [routeCoords, ascendMeters],
   );
+  const arrows = useMemo(
+    () => (routeCoords ? arrowsAlongRoute(routeCoords, 2000) : []),
+    [routeCoords],
+  );
   const rideTime =
     distanceKm != null && avgSpeed > 0
       ? formatDuration((distanceKm / avgSpeed) * 60)
@@ -386,6 +395,8 @@ export default function Home() {
         waypoints={waypoints}
         loop={closing}
         segments={segments}
+        arrows={arrows}
+        fitToken={fitToken}
         hoverPoint={hoverPoint}
         onMapClick={handleMapClick}
         onLineClick={handleLineClick}
@@ -420,7 +431,16 @@ export default function Home() {
         </button>
 
         <div className="panel-body">
-        <h1>Rondje</h1>
+        <div className="brand">
+          <img
+            src="/icon-192.png"
+            alt="Rondje-logo"
+            className="brand-logo"
+            width={32}
+            height={32}
+          />
+          <h1>Rondje</h1>
+        </div>
         <p className="subtitle">
           <span
             className={`status-dot ${health === "ok" ? "ok" : health === "down" ? "bad" : "wait"}`}

@@ -79,3 +79,48 @@ export function insertIndexForLineClick(
   }
   return Math.max(1, waypoints.length - 1);
 }
+
+/** Compass bearing in degrees (0 = North, clockwise) from `a` to `b`. */
+export function bearingDegrees(a: LonLat, b: LonLat): number {
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/**
+ * Sample points along a route polyline about every `everyMeters`, each carrying
+ * the local travel bearing — used to draw direction arrows on the map so you can
+ * see which way the route goes. Input coords are [lon, lat, ...].
+ */
+export function arrowsAlongRoute(
+  coordinates: number[][],
+  everyMeters: number,
+): { lon: number; lat: number; bearing: number }[] {
+  if (coordinates.length < 2 || everyMeters <= 0) return [];
+  const out: { lon: number; lat: number; bearing: number }[] = [];
+  let acc = 0;
+  let next = everyMeters;
+  for (let i = 1; i < coordinates.length; i++) {
+    const a = { lon: coordinates[i - 1][0], lat: coordinates[i - 1][1] };
+    const b = { lon: coordinates[i][0], lat: coordinates[i][1] };
+    const seg = haversineMeters(a, b);
+    if (seg === 0) continue;
+    const bearing = bearingDegrees(a, b);
+    while (acc + seg >= next) {
+      const t = (next - acc) / seg;
+      out.push({
+        lon: a.lon + (b.lon - a.lon) * t,
+        lat: a.lat + (b.lat - a.lat) * t,
+        bearing,
+      });
+      next += everyMeters;
+    }
+    acc += seg;
+  }
+  return out;
+}

@@ -8,7 +8,6 @@ export const metadata: Metadata = {
   applicationName: "Rondje",
   appleWebApp: { capable: true, title: "Rondje", statusBarStyle: "default" },
   formatDetection: { telephone: false },
-  icons: { apple: "/apple-icon.png" },
 };
 
 export const viewport: Viewport = {
