@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import type { FeatureCollection } from "geojson";
 import type { LonLat } from "@/lib/coords";
 
 type Props = {
@@ -15,9 +16,9 @@ type Props = {
 };
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
-const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
-function lineData(coords: number[][]): GeoJSON.FeatureCollection {
+function lineData(coords: number[][]): FeatureCollection {
   return {
     type: "FeatureCollection",
     features: [
