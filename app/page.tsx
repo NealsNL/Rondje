@@ -30,22 +30,6 @@ type SavedRouteSummary = {
 // Compass layout as a 3x3 grid; "" cells are spacers.
 const COMPASS: (Direction | "")[] = ["NW", "N", "NE", "W", "", "E", "SW", "S", "SE"];
 
-// The eight compass directions clockwise from North, for wind calculations.
-const DIRS8: Direction[] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-function compass8(deg: number): Direction {
-  return DIRS8[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
-}
-const DIR_NL: Record<Direction, string> = {
-  N: "het noorden",
-  NE: "het noordoosten",
-  E: "het oosten",
-  SE: "het zuidoosten",
-  S: "het zuiden",
-  SW: "het zuidwesten",
-  W: "het westen",
-  NW: "het noordwesten",
-};
-
 export default function Home() {
   const [waypoints, setWaypoints] = useState<LonLat[]>([]);
   const [routeCoords, setRouteCoords] = useState<number[][] | null>(null);
@@ -67,15 +51,6 @@ export default function Home() {
   const [direction, setDirection] = useState<Direction>("N");
   const [targetKm, setTargetKm] = useState(40);
   const [generating, setGenerating] = useState(false);
-  // Wind-smart loop: ride out into the wind, return with it at your back.
-  const [windAware, setWindAware] = useState(false);
-  useEffect(() => {
-    setWindAware(localStorage.getItem("windAware") === "1");
-  }, []);
-  const changeWindAware = useCallback((v: boolean) => {
-    setWindAware(v);
-    localStorage.setItem("windAware", v ? "1" : "0");
-  }, []);
 
   // Personal average speed (km/h), remembered between sessions.
   const [avgSpeed, setAvgSpeed] = useState(25);
@@ -351,36 +326,11 @@ export default function Home() {
     setGenerating(true);
     setError(null);
     setInfo(null);
-
-    // Wind-smart: pick the outbound direction into the wind so the tougher leg
-    // is first and you ride home with the wind at your back.
-    let dir = direction;
-    let windMsg = "";
-    if (windAware) {
-      try {
-        const w = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${start.lat}&longitude=${start.lon}&current=wind_speed_10m,wind_direction_10m`,
-        );
-        const wj = await w.json();
-        const spd = Number(wj?.current?.wind_speed_10m);
-        const from = Number(wj?.current?.wind_direction_10m);
-        if (Number.isFinite(from) && Number.isFinite(spd) && spd >= 8) {
-          dir = compass8(from); // wind_direction is where the wind comes FROM
-          setDirection(dir);
-          windMsg = `Wind uit ${DIR_NL[dir]} (${Math.round(spd)} km/u): op de heenweg tegen de wind in, met de wind terug.`;
-        } else if (Number.isFinite(spd)) {
-          windMsg = `Weinig wind (${Math.round(spd)} km/u) — de richting maakt nu weinig uit.`;
-        }
-      } catch {
-        /* geen internet/wind beschikbaar: gebruik de gekozen richting */
-      }
-    }
-
     try {
       const r = await fetch("/api/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ start, direction: dir, distanceKm: targetKm, profile, quietness }),
+        body: JSON.stringify({ start, direction, distanceKm: targetKm, profile, quietness }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Genereren mislukt.");
@@ -388,19 +338,19 @@ export default function Home() {
       setTripType("loop");
       setCloseLoop(false);
       setWaypoints(d.waypoints);
-      setGenMeta({ direction: dir, targetKm });
+      setGenMeta({ direction, targetKm });
       setFitToken((n) => n + 1);
-      const tail = d.withinTolerance
-        ? ""
-        : `Beste rondrit is ${d.distanceKm.toFixed(1)} km (doel ${targetKm} km). Versleep punten om bij te sturen.`;
-      const msg = [windMsg, tail].filter(Boolean).join(" ");
-      if (msg) setInfo(msg);
+      if (!d.withinTolerance) {
+        setInfo(
+          `Beste rondrit is ${d.distanceKm.toFixed(1)} km (doel ${targetKm} km). Versleep punten om bij te sturen.`,
+        );
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setGenerating(false);
     }
-  }, [direction, targetKm, profile, quietness, windAware]);
+  }, [direction, targetKm, profile, quietness]);
 
   const exportGpx = useCallback(async () => {
     const closing =
@@ -750,19 +700,8 @@ export default function Home() {
         {tripType === "loop" && (
         <div className="section">
           <p className="section-title">Rondrit genereren</p>
-          <label className="wind-toggle">
-            <input
-              type="checkbox"
-              checked={windAware}
-              onChange={(e) => changeWindAware(e.target.checked)}
-            />
-            <span>Wind-slim rondje — heenweg tegen de wind in</span>
-          </label>
           <div className="field">
-            <label>
-              Richting vanaf het startpunt
-              {windAware ? " (wordt op de wind gekozen)" : ""}
-            </label>
+            <label>Richting vanaf het startpunt</label>
             <div className="compass">
               {COMPASS.map((d, i) =>
                 d === "" ? (

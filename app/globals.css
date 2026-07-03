@@ -299,23 +299,6 @@ button {
   visibility: hidden;
 }
 
-.wind-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text);
-  margin-bottom: 12px;
-  cursor: pointer;
-}
-
-.wind-toggle input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
 /* Hint / status text */
 .hint {
   font-size: 12px;
