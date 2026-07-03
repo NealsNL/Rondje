@@ -69,6 +69,8 @@ export default function Home() {
   const [savedRoutes, setSavedRoutes] = useState<SavedRouteSummary[]>([]);
   // On phones the panel is a bottom sheet; this tracks whether it's expanded.
   const [panelOpen, setPanelOpen] = useState(false);
+  // In "Van A naar B" mode, whether the drawn route closes back to the start.
+  const [closeLoop, setCloseLoop] = useState(false);
   // Generator settings, remembered only when the route was generated.
   const [genMeta, setGenMeta] = useState<{ direction: Direction; targetKm: number } | null>(
     null,
@@ -81,6 +83,8 @@ export default function Home() {
   routeRef.current = routeCoords;
   const tripTypeRef = useRef(tripType);
   tripTypeRef.current = tripType;
+  const closeLoopRef = useRef(closeLoop);
+  closeLoopRef.current = closeLoop;
 
   // Check the routing server on load.
   useEffect(() => {
@@ -100,7 +104,8 @@ export default function Home() {
 
   // Re-route whenever the waypoints, trip type or profile change.
   useEffect(() => {
-    const rw = routeWaypoints(waypoints, tripType);
+    const closing = tripType === "loop" || (tripType === "ptp" && closeLoop);
+    const rw = routeWaypoints(waypoints, closing ? "loop" : "ptp");
     if (rw.length < 2) {
       setRouteCoords(null);
       setSegments(null);
@@ -149,19 +154,27 @@ export default function Home() {
         if (!ctrl.signal.aborted) setLoading(false);
       });
     return () => ctrl.abort();
-  }, [waypoints, tripType, profile]);
+  }, [waypoints, tripType, closeLoop, profile]);
 
-  // Each click on empty map adds the next point: start, then stops, then end.
+  // Rondje: one clear start point (the loop itself is generated). A→B: each
+  // click adds the next point the route rides through.
   const handleMapClick = useCallback((p: LonLat) => {
     setInfo(null);
-    setWaypoints((wps) => [...wps, p]);
+    if (tripTypeRef.current === "loop") {
+      setWaypoints([p]);
+    } else {
+      setWaypoints((wps) => [...wps, p]);
+    }
   }, []);
 
   const handleLineClick = useCallback((p: LonLat) => {
     const wps = wpRef.current;
     const coords = routeRef.current;
     if (!coords) return;
-    const rw = routeWaypoints(wps, tripTypeRef.current);
+    const closing =
+      tripTypeRef.current === "loop" ||
+      (tripTypeRef.current === "ptp" && closeLoopRef.current);
+    const rw = routeWaypoints(wps, closing ? "loop" : "ptp");
     const idx = insertIndexForLineClick(coords, rw, p);
     const next = [...wps];
     next.splice(Math.min(idx, wps.length), 0, p); // keep inside the open list
@@ -181,6 +194,7 @@ export default function Home() {
     setError(null);
     setInfo(null);
     setGenMeta(null);
+    setCloseLoop(false);
   }, []);
 
   const reverseRoute = useCallback(() => {
@@ -198,6 +212,7 @@ export default function Home() {
       const track = parseGpxTrack(await file.text());
       if (track.length < 2) throw new Error("Geen route gevonden in dit GPX-bestand.");
       setGenMeta(null);
+      setCloseLoop(false);
       setRouteName(file.name.replace(/\.gpx$/i, ""));
       setWaypoints(sampleTrackToWaypoints(track, 24));
       setInfo("GPX geïmporteerd. Versleep de punten om bij te sturen.");
@@ -221,6 +236,7 @@ export default function Home() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Genereren mislukt.");
       setTripType("loop");
+      setCloseLoop(false);
       setWaypoints(d.waypoints);
       setGenMeta({ direction, targetKm });
       if (!d.withinTolerance) {
@@ -236,7 +252,10 @@ export default function Home() {
   }, [direction, targetKm, profile]);
 
   const exportGpx = useCallback(async () => {
-    const rw = routeWaypoints(wpRef.current, tripTypeRef.current);
+    const closing =
+      tripTypeRef.current === "loop" ||
+      (tripTypeRef.current === "ptp" && closeLoopRef.current);
+    const rw = routeWaypoints(wpRef.current, closing ? "loop" : "ptp");
     if (rw.length < 2) return;
     setExporting(true);
     setError(null);
@@ -289,7 +308,11 @@ export default function Home() {
         body: JSON.stringify({
           name,
           profile,
-          tripType,
+          tripType:
+            tripTypeRef.current === "loop" ||
+            (tripTypeRef.current === "ptp" && closeLoopRef.current)
+              ? "loop"
+              : "ptp",
           waypoints: wpRef.current,
           distanceKm,
           direction: genMeta?.direction ?? null,
@@ -316,6 +339,7 @@ export default function Home() {
       if (!r.ok) throw new Error(d.error ?? "Laden mislukt.");
       setProfile(d.profile);
       setTripType(d.tripType === "ptp" ? "ptp" : "loop");
+      setCloseLoop(false);
       setRouteName(d.name);
       if (d.direction && d.targetKm) {
         setGenMeta({ direction: d.direction, targetKm: d.targetKm });
@@ -352,14 +376,15 @@ export default function Home() {
       ? formatDuration((distanceKm / avgSpeed) * 60)
       : "–";
 
+  const closing = tripType === "loop" || (tripType === "ptp" && closeLoop);
   const hasStart = waypoints.length >= 1;
-  const hasRoute = routeWaypoints(waypoints, tripType).length >= 2;
+  const hasRoute = routeWaypoints(waypoints, closing ? "loop" : "ptp").length >= 2;
 
   return (
     <>
       <MapView
         waypoints={waypoints}
-        loop={tripType === "loop"}
+        loop={closing}
         segments={segments}
         hoverPoint={hoverPoint}
         onMapClick={handleMapClick}
@@ -412,13 +437,20 @@ export default function Home() {
           <div className="toggle">
             <button
               className={tripType === "loop" ? "active" : ""}
-              onClick={() => setTripType("loop")}
+              onClick={() => {
+                setTripType("loop");
+                setCloseLoop(false);
+                setWaypoints((w) => w.slice(0, 1)); // Rondje keeps only the start
+              }}
             >
               Rondje
             </button>
             <button
               className={tripType === "ptp" ? "active" : ""}
-              onClick={() => setTripType("ptp")}
+              onClick={() => {
+                setTripType("ptp");
+                setCloseLoop(false);
+              }}
             >
               Van A naar B
             </button>
@@ -616,6 +648,19 @@ export default function Home() {
         )}
 
         <div className="section">
+          {tripType === "ptp" && waypoints.length >= 2 && (
+            <div className="btn-row">
+              {closeLoop ? (
+                <button className="btn" onClick={() => setCloseLoop(false)}>
+                  Rondje openen
+                </button>
+              ) : (
+                <button className="btn primary" onClick={() => setCloseLoop(true)}>
+                  ↩ Terug naar startpunt
+                </button>
+              )}
+            </div>
+          )}
           <div className="btn-row">
             <button className="btn" onClick={reverseRoute} disabled={!hasRoute}>
               Omdraaien
@@ -625,15 +670,17 @@ export default function Home() {
             </button>
           </div>
           <p className="hint">
-            {waypoints.length === 0
-              ? tripType === "loop"
-                ? "Klik een startpunt op de kaart, of genereer hieronder een rondje."
-                : "Klik het startpunt op de kaart."
-              : tripType === "ptp" && waypoints.length === 1
-                ? "Klik nu het eindpunt. Extra klikken worden tussenstops."
-                : tripType === "loop"
-                  ? "Klik om tussenstops toe te voegen — de route keert terug naar de start. Sleep punten of klik op de route om bij te sturen."
-                  : "Klik om nog een tussenstop toe te voegen (de laatste is het eindpunt). Sleep of klik op de route om bij te sturen."}
+            {tripType === "loop"
+              ? waypoints.length === 0
+                ? "Klik een startpunt op de kaart en genereer hieronder je rondje."
+                : "Kies richting en afstand en klik op ‘Genereer rondrit’. Klik op de kaart voor een ander startpunt."
+              : waypoints.length === 0
+                ? "Klik het startpunt op de kaart."
+                : waypoints.length === 1
+                  ? "Klik het volgende punt — de route gaat langs alle punten die je zet."
+                  : closeLoop
+                    ? "De route keert terug naar de start. Sleep punten of klik op de route om bij te sturen."
+                    : "Sleep punten of klik op de route om bij te sturen. Terug naar de start? Gebruik ‘Terug naar startpunt’."}
           </p>
         </div>
         </div>
