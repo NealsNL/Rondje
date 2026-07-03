@@ -5,10 +5,11 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { FeatureCollection } from "geojson";
 import type { LonLat } from "@/lib/coords";
+import type { ColoredSegment } from "@/lib/surface";
 
 type Props = {
   waypoints: LonLat[];
-  routeCoords: number[][] | null;
+  segments: ColoredSegment[] | null;
   onMapClick: (p: LonLat) => void;
   onLineClick: (p: LonLat) => void;
   onWaypointMove: (index: number, p: LonLat) => void;
@@ -18,16 +19,27 @@ type Props = {
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
-function lineData(coords: number[][]): FeatureCollection {
+// Colour by surface: green = paved, amber = semi (firm gravel), orange = unpaved.
+const SURFACE_COLOR = [
+  "match",
+  ["get", "surface"],
+  "paved",
+  "#16a34a",
+  "semi",
+  "#eab308",
+  "unpaved",
+  "#ea580c",
+  "#2563eb",
+] as const;
+
+function lineData(segments: ColoredSegment[]): FeatureCollection {
   return {
     type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        properties: {},
-        geometry: { type: "LineString", coordinates: coords },
-      },
-    ],
+    features: segments.map((s) => ({
+      type: "Feature",
+      properties: { surface: s.surface },
+      geometry: { type: "LineString", coordinates: s.coordinates },
+    })),
   };
 }
 
@@ -62,7 +74,11 @@ export default function MapView(props: Props) {
         type: "line",
         source: "route",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#2563eb", "line-width": 5, "line-opacity": 0.85 },
+        paint: {
+          "line-color": SURFACE_COLOR as unknown as maplibregl.ExpressionSpecification,
+          "line-width": 5,
+          "line-opacity": 0.9,
+        },
       });
       // Wide, invisible line on top to make the route easy to click.
       map.addLayer({
@@ -78,7 +94,7 @@ export default function MapView(props: Props) {
     map.on("click", (e) => {
       const p = { lon: e.lngLat.lng, lat: e.lngLat.lat };
       const onLine =
-        !!live.current.routeCoords &&
+        !!live.current.segments?.length &&
         map.queryRenderedFeatures(e.point, { layers: ["route-hit"] }).length > 0;
       if (onLine) live.current.onLineClick(p);
       else live.current.onMapClick(p);
@@ -105,8 +121,8 @@ export default function MapView(props: Props) {
     const map = mapRef.current;
     if (!map || !ready) return;
     const src = map.getSource("route") as maplibregl.GeoJSONSource | undefined;
-    src?.setData(props.routeCoords ? lineData(props.routeCoords) : EMPTY);
-  }, [props.routeCoords, ready]);
+    src?.setData(props.segments?.length ? lineData(props.segments) : EMPTY);
+  }, [props.segments, ready]);
 
   // --- keep markers in sync with the waypoints ---
   useEffect(() => {

@@ -357,6 +357,52 @@ button {
   height: 14px;
 }
 
+/* Surface breakdown bar */
+.surface {
+  margin: 10px 0 2px;
+}
+.surface-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #e2e8f0;
+}
+.surface-bar .seg {
+  height: 100%;
+}
+.seg.paved,
+.dot.paved {
+  background: #16a34a;
+}
+.seg.semi,
+.dot.semi {
+  background: #eab308;
+}
+.seg.unpaved,
+.dot.unpaved {
+  background: #ea580c;
+}
+.surface-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.surface-legend span {
+  display: inline-flex;
+  align-items: center;
+}
+.surface-legend .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+
 /* Elevation chart */
 .elevation {
   margin-top: 6px;

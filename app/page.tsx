@@ -8,6 +8,7 @@ import { toGpxFileName } from "@/lib/gpx";
 import ElevationChart from "@/components/ElevationChart";
 import type { Profile } from "@/lib/config";
 import type { Direction } from "@/lib/generate";
+import type { ColoredSegment, SurfaceBreakdown } from "@/lib/surface";
 
 // Load the map only in the browser (MapLibre needs window).
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -30,6 +31,8 @@ const COMPASS: (Direction | "")[] = ["NW", "N", "NE", "W", "", "E", "SW", "S", "
 export default function Home() {
   const [waypoints, setWaypoints] = useState<LonLat[]>([]);
   const [routeCoords, setRouteCoords] = useState<number[][] | null>(null);
+  const [segments, setSegments] = useState<ColoredSegment[] | null>(null);
+  const [breakdown, setBreakdown] = useState<SurfaceBreakdown | null>(null);
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   const [ascendMeters, setAscendMeters] = useState<number | null>(null);
   const [profile, setProfile] = useState<Profile>("paved");
@@ -79,6 +82,8 @@ export default function Home() {
   useEffect(() => {
     if (waypoints.length < 2) {
       setRouteCoords(null);
+      setSegments(null);
+      setBreakdown(null);
       setDistanceKm(null);
       setAscendMeters(null);
       setError(null);
@@ -102,11 +107,20 @@ export default function Home() {
         setRouteCoords(d.coordinates);
         setDistanceKm(d.distanceKm);
         setAscendMeters(d.ascendMeters);
+        if (d.surface) {
+          setSegments(d.surface.segments);
+          setBreakdown(d.surface.breakdown);
+        } else {
+          setSegments([{ surface: "paved", coordinates: d.coordinates }]);
+          setBreakdown(null);
+        }
       })
       .catch((e: Error) => {
         if (e.name === "AbortError") return;
         setError(e.message);
         setRouteCoords(null);
+        setSegments(null);
+        setBreakdown(null);
         setDistanceKm(null);
         setAscendMeters(null);
       })
@@ -289,7 +303,7 @@ export default function Home() {
     <>
       <MapView
         waypoints={waypoints}
-        routeCoords={routeCoords}
+        segments={segments}
         onMapClick={handleMapClick}
         onLineClick={handleLineClick}
         onWaypointMove={handleWaypointMove}
@@ -319,6 +333,7 @@ export default function Home() {
               <span className="climb">↑ {Math.round(ascendMeters)} m</span>
             )}
           </div>
+          {breakdown && <SurfaceBar breakdown={breakdown} />}
           {loading && <p className="hint">Route berekenen…</p>}
           {info && <p className="hint">{info}</p>}
           {error && <p className="error">{error}</p>}
@@ -461,10 +476,43 @@ export default function Home() {
               ? "Klik op de kaart voor het startpunt."
               : waypoints.length === 1
                 ? "Klik op de kaart voor het eindpunt, of genereer hierboven een rondrit."
-                : "Sleep de punten om te schuiven. Klik op de blauwe lijn om een punt toe te voegen. Rechtsklik een punt om het te verwijderen."}
+                : "Sleep de punten om te schuiven. Klik op de route om een punt toe te voegen. Rechtsklik een punt om het te verwijderen."}
           </p>
         </div>
       </div>
     </>
+  );
+}
+
+function SurfaceBar({ breakdown }: { breakdown: SurfaceBreakdown }) {
+  const total = breakdown.paved + breakdown.semi + breakdown.unpaved || 1;
+  const pct = (m: number) => (m / total) * 100;
+  const p = pct(breakdown.paved);
+  const s = pct(breakdown.semi);
+  const u = pct(breakdown.unpaved);
+  const fmt = (n: number) => (n > 0 && n < 1 ? "<1" : String(Math.round(n)));
+  return (
+    <div className="surface">
+      <div className="surface-bar" title="Aandeel verhard / halfverhard / onverhard">
+        <span className="seg paved" style={{ width: `${p}%` }} />
+        <span className="seg semi" style={{ width: `${s}%` }} />
+        <span className="seg unpaved" style={{ width: `${u}%` }} />
+      </div>
+      <p className="surface-legend">
+        <span>
+          <i className="dot paved" /> {fmt(p)}% verhard
+        </span>
+        {breakdown.semi > 0 && (
+          <span>
+            <i className="dot semi" /> {fmt(s)}% half
+          </span>
+        )}
+        {breakdown.unpaved > 0 && (
+          <span>
+            <i className="dot unpaved" /> {fmt(u)}% onverhard
+          </span>
+        )}
+      </p>
+    </div>
   );
 }

@@ -5,6 +5,7 @@
 import "server-only";
 import { BROUTER_URL, type Profile } from "./config";
 import { toLonLatsParam, type LonLat } from "./coords";
+import { buildSurfaceInfo, type SurfaceInfo } from "./surface";
 
 export type RouteResult = {
   /** Route geometry as GeoJSON coordinates: [lon, lat, elevation]. */
@@ -13,6 +14,10 @@ export type RouteResult = {
   distanceKm: number;
   /** Total climb in metres (BRouter "filtered ascend"), if provided. */
   ascendMeters: number | null;
+  /** Total ride time in seconds (BRouter kinematic estimate), if provided. */
+  totalTimeSeconds: number | null;
+  /** Surface breakdown + colour-coded geometry, if BRouter returned tags. */
+  surface: SurfaceInfo | null;
 };
 
 export class BrouterError extends Error {}
@@ -98,11 +103,15 @@ export async function fetchRoute(
   const props = feature.properties ?? {};
   const trackLength = Number(props["track-length"]);
   const ascend = props["filtered ascend"] ?? props["plain-ascend"];
+  const totalTime = Number(props["total-time"]);
+  const coordinates = feature.geometry.coordinates;
 
   return {
-    coordinates: feature.geometry.coordinates,
+    coordinates,
     distanceKm: Number.isFinite(trackLength) ? trackLength / 1000 : 0,
     ascendMeters: ascend != null ? Number(ascend) : null,
+    totalTimeSeconds: Number.isFinite(totalTime) ? totalTime : null,
+    surface: buildSurfaceInfo(coordinates, feature.properties?.messages),
   };
 }
 
@@ -117,7 +126,7 @@ export async function fetchGpx(
 // Minimal shape of the BRouter GeoJSON response we rely on.
 type BrouterGeoJson = {
   features?: Array<{
-    properties?: Record<string, string>;
+    properties?: Record<string, string> & { messages?: string[][] };
     geometry?: { type: string; coordinates: number[][] };
   }>;
 };
