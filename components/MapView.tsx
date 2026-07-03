@@ -10,6 +10,7 @@ import type { ColoredSegment } from "@/lib/surface";
 type Props = {
   waypoints: LonLat[];
   segments: ColoredSegment[] | null;
+  hoverPoint: number[] | null;
   onMapClick: (p: LonLat) => void;
   onLineClick: (p: LonLat) => void;
   onWaypointMove: (index: number, p: LonLat) => void;
@@ -88,6 +89,19 @@ export default function MapView(props: Props) {
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#000", "line-width": 22, "line-opacity": 0 },
       });
+      // Marker that follows the elevation-chart hover.
+      map.addSource("hover", { type: "geojson", data: EMPTY });
+      map.addLayer({
+        id: "hover-pt",
+        type: "circle",
+        source: "hover",
+        paint: {
+          "circle-radius": 6,
+          "circle-color": "#111827",
+          "circle-stroke-color": "#fff",
+          "circle-stroke-width": 2,
+        },
+      });
       setReady(true);
     });
 
@@ -123,6 +137,27 @@ export default function MapView(props: Props) {
     const src = map.getSource("route") as maplibregl.GeoJSONSource | undefined;
     src?.setData(props.segments?.length ? lineData(props.segments) : EMPTY);
   }, [props.segments, ready]);
+
+  // --- move the elevation-hover marker ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const src = map.getSource("hover") as maplibregl.GeoJSONSource | undefined;
+    src?.setData(
+      props.hoverPoint
+        ? {
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                properties: {},
+                geometry: { type: "Point", coordinates: props.hoverPoint },
+              },
+            ],
+          }
+        : EMPTY,
+    );
+  }, [props.hoverPoint, ready]);
 
   // --- keep markers in sync with the waypoints ---
   useEffect(() => {

@@ -34,6 +34,7 @@ export default function Home() {
   const [routeCoords, setRouteCoords] = useState<number[][] | null>(null);
   const [segments, setSegments] = useState<ColoredSegment[] | null>(null);
   const [breakdown, setBreakdown] = useState<SurfaceBreakdown | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<number[] | null>(null);
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   const [ascendMeters, setAscendMeters] = useState<number | null>(null);
   const [profile, setProfile] = useState<Profile>("paved");
@@ -326,6 +327,7 @@ export default function Home() {
       <MapView
         waypoints={waypoints}
         segments={segments}
+        hoverPoint={hoverPoint}
         onMapClick={handleMapClick}
         onLineClick={handleLineClick}
         onWaypointMove={handleWaypointMove}
@@ -393,7 +395,11 @@ export default function Home() {
         {routeCoords && routeCoords.length > 1 && (
           <div className="section">
             <p className="section-title">Hoogteprofiel</p>
-            <ElevationChart coords={routeCoords} ascentMeters={ascendMeters} />
+            <ElevationChart
+              coords={routeCoords}
+              ascentMeters={ascendMeters}
+              onHover={setHoverPoint}
+            />
           </div>
         )}
 

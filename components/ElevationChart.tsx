@@ -1,30 +1,79 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { haversineMeters } from "@/lib/geo";
 
-// Draws a small elevation profile from BRouter geometry ([lon, lat, ele]).
-// Pure SVG, no chart library. X = distance along the route, Y = elevation.
+// Draws a small, interactive elevation profile from BRouter geometry
+// ([lon, lat, ele]). Hovering shows the height/distance/gradient at that point
+// and reports the map coordinate to the parent so it can mark it on the map.
 
 const W = 300;
 const H = 96;
 const PAD_TOP = 8;
 const PAD_BOTTOM = 8;
 
-export default function ElevationChart({
-  coords,
-  ascentMeters,
-}: {
+type Props = {
   coords: number[][];
   ascentMeters?: number | null;
-}) {
-  const chart = useMemo(() => build(coords, ascentMeters), [coords, ascentMeters]);
-  if (!chart) return null;
+  onHover?: (coord: number[] | null) => void;
+};
 
-  const { area, line, minE, maxE, ascent, descent, distanceKm } = chart;
+export default function ElevationChart({ coords, ascentMeters, onHover }: Props) {
+  const chart = useMemo(() => build(coords, ascentMeters), [coords, ascentMeters]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [hover, setHover] = useState<{ xPct: number; label: string } | null>(null);
+
+  if (!chart) return null;
+  const { area, line, minE, maxE, ascent, descent, distanceKm, cum, totalD } = chart;
+
+  const yFor = (e: number) =>
+    PAD_TOP + (1 - (e - minE) / (maxE - minE || 1)) * (H - PAD_TOP - PAD_BOTTOM);
+
+  function handleMove(clientX: number) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const target = frac * totalD;
+
+    // nearest geometry point by cumulative distance
+    let lo = 0;
+    let hi = cum.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] < target) lo = mid + 1;
+      else hi = mid;
+    }
+    const idx = lo;
+    const ele = coords[idx][2] ?? 0;
+    const grad = gradientAt(coords, cum, idx);
+    setHover({
+      xPct: (cum[idx] / totalD) * 100,
+      label: `${(cum[idx] / 1000).toFixed(1).replace(".", ",")} km · ${Math.round(ele)} m · ${grad >= 0 ? "" : "-"}${Math.abs(grad).toFixed(0)}%`,
+    });
+    onHover?.(coords[idx]);
+  }
+
+  function handleLeave() {
+    setHover(null);
+    onHover?.(null);
+  }
+
   return (
     <div className="elevation">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img">
+      {hover && (
+        <div className="tip" style={{ left: `${hover.xPct}%` }}>
+          {hover.label}
+        </div>
+      )}
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        role="img"
+        onMouseMove={(e) => handleMove(e.clientX)}
+        onMouseLeave={handleLeave}
+      >
         <path d={area} fill="#2563eb" fillOpacity="0.14" />
         <path
           d={line}
@@ -33,6 +82,17 @@ export default function ElevationChart({
           strokeWidth="1.5"
           vectorEffect="non-scaling-stroke"
         />
+        {hover && (
+          <line
+            x1={(hover.xPct / 100) * W}
+            x2={(hover.xPct / 100) * W}
+            y1={0}
+            y2={H}
+            stroke="#111827"
+            strokeWidth="1"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
       </svg>
       <p className="hint">
         ↑ {ascent} m · ↓ {descent} m · {Math.round(minE)}–{Math.round(maxE)} m ·{" "}
@@ -42,21 +102,39 @@ export default function ElevationChart({
   );
 }
 
+function gradientAt(coords: number[][], cum: number[], idx: number): number {
+  const window = 60;
+  let j = idx;
+  while (j < coords.length - 1 && cum[j] - cum[idx] < window) j++;
+  const dist = cum[j] - cum[idx];
+  if (dist < 20) {
+    // near the end: look backwards instead
+    let k = idx;
+    while (k > 0 && cum[idx] - cum[k] < window) k--;
+    const d2 = cum[idx] - cum[k];
+    if (d2 < 20) return 0;
+    return (((coords[idx][2] ?? 0) - (coords[k][2] ?? 0)) / d2) * 100;
+  }
+  return (((coords[j][2] ?? 0) - (coords[idx][2] ?? 0)) / dist) * 100;
+}
+
 function build(coords: number[][], ascentMeters?: number | null) {
   if (!coords || coords.length < 2) return null;
 
-  // Cumulative distance + elevation at full resolution.
-  const pts: { d: number; e: number }[] = [];
-  let cum = 0;
-  let lastE = coords[0][2] ?? 0;
+  const cum: number[] = [0];
+  let cumDist = 0;
   let rawAscent = 0;
   let rawDescent = 0;
+  let lastE = coords[0][2] ?? 0;
+  let minE = Infinity;
+  let maxE = -Infinity;
   for (let i = 0; i < coords.length; i++) {
     if (i > 0) {
-      cum += haversineMeters(
+      cumDist += haversineMeters(
         { lon: coords[i - 1][0], lat: coords[i - 1][1] },
         { lon: coords[i][0], lat: coords[i][1] },
       );
+      cum.push(cumDist);
     }
     const e = coords[i][2] ?? lastE;
     if (i > 0) {
@@ -64,14 +142,14 @@ function build(coords: number[][], ascentMeters?: number | null) {
       if (de > 0) rawAscent += de;
       else rawDescent -= de;
     }
-    pts.push({ d: cum, e });
+    if (e < minE) minE = e;
+    if (e > maxE) maxE = e;
     lastE = e;
   }
 
-  // Prefer BRouter's filtered ascent (noise-removed) so the number matches the
-  // one shown next to the distance. Descent follows from the net-height
-  // identity: net = endEle - startEle = ascent - descent.
-  const net = pts[pts.length - 1].e - pts[0].e;
+  const totalD = cumDist || 1;
+  const span = maxE - minE || 1;
+  const net = (coords[coords.length - 1][2] ?? 0) - (coords[0][2] ?? 0);
   let ascent: number;
   let descent: number;
   if (ascentMeters != null && Number.isFinite(ascentMeters)) {
@@ -82,28 +160,17 @@ function build(coords: number[][], ascentMeters?: number | null) {
     descent = rawDescent;
   }
 
-  const totalD = cum || 1;
-  let minE = Infinity;
-  let maxE = -Infinity;
-  for (const p of pts) {
-    if (p.e < minE) minE = p.e;
-    if (p.e > maxE) maxE = p.e;
-  }
-  const span = maxE - minE || 1;
-
-  // Downsample to keep the SVG light.
-  const step = Math.max(1, Math.floor(pts.length / W));
-  const sampled = pts.filter((_, i) => i % step === 0);
-  if (sampled[sampled.length - 1] !== pts[pts.length - 1]) {
-    sampled.push(pts[pts.length - 1]);
-  }
-
   const x = (d: number) => (d / totalD) * W;
-  const y = (e: number) =>
-    PAD_TOP + (1 - (e - minE) / span) * (H - PAD_TOP - PAD_BOTTOM);
+  const y = (e: number) => PAD_TOP + (1 - (e - minE) / span) * (H - PAD_TOP - PAD_BOTTOM);
 
-  const line = sampled
-    .map((p, i) => `${i === 0 ? "M" : "L"}${x(p.d).toFixed(1)},${y(p.e).toFixed(1)}`)
+  // Downsample for the path only.
+  const step = Math.max(1, Math.floor(coords.length / W));
+  const idxs: number[] = [];
+  for (let i = 0; i < coords.length; i += step) idxs.push(i);
+  if (idxs[idxs.length - 1] !== coords.length - 1) idxs.push(coords.length - 1);
+
+  const line = idxs
+    .map((i, k) => `${k === 0 ? "M" : "L"}${x(cum[i]).toFixed(1)},${y(coords[i][2] ?? 0).toFixed(1)}`)
     .join(" ");
   const area = `${line} L${W},${H} L0,${H} Z`;
 
@@ -115,5 +182,7 @@ function build(coords: number[][], ascentMeters?: number | null) {
     ascent: Math.round(ascent),
     descent: Math.round(descent),
     distanceKm: totalD / 1000,
+    cum,
+    totalD,
   };
 }
