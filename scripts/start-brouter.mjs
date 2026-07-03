@@ -25,8 +25,8 @@ function fail(msg) {
 
 if (!existsSync(java)) {
   fail(
-    "Java-runtime niet gevonden in brouter/jre. Voer eerst 'npm run setup' uit " +
-      "of herstel de bundel (zie README).",
+    "Java-runtime niet gevonden in brouter/jre. Download de onderdelen met:\n" +
+      "  powershell -ExecutionPolicy Bypass -File scripts\\download-brouter.ps1",
   );
 }
 
