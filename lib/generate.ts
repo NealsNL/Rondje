@@ -126,17 +126,36 @@ function findExcursions(coords: number[][], cum: number[]): [number, number][] {
   return out;
 }
 
-/** Drop the via nearest each out-and-back excursion so the loop stays clean. */
-function removeSpurVias(openLoop: LonLat[], coords: number[][]): LonLat[] {
-  if (coords.length < 4 || openLoop.length <= 3) return openLoop;
-  const cum = cumulativeMeters(coords);
-  const excursions = findExcursions(coords, cum);
-  if (excursions.length === 0) return openLoop;
+/** The route vertex at a given cumulative distance (null if out of range). */
+function vertexAtCum(coords: number[][], cum: number[], target: number): number[] | null {
+  const total = cum[cum.length - 1];
+  if (target < 0 || target > total) return null;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return coords[lo];
+}
 
-  const viaIndex = openLoop.slice(1).map((v) => nearestVertexIndex(coords, v));
+/**
+ * Vias that make the route detour instead of ride through. Two kinds:
+ *  - out-and-back excursions (the route leaves the path and returns to it);
+ *  - turnarounds (the route reaches the via and comes straight back, so the
+ *    path a little before and after the via is almost the same place). The
+ *    second catches short dead-end spurs the excursion test is too coarse for.
+ * Returned as indices into openLoop (never index 0, the start).
+ */
+function findBadVias(openLoop: LonLat[], coords: number[][]): Set<number> {
   const bad = new Set<number>();
-  for (const [i, j] of excursions) {
-    // tip = farthest point from the entry, i.e. the turnaround
+  if (coords.length < 4 || openLoop.length <= 3) return bad;
+  const cum = cumulativeMeters(coords);
+  const viaIndex = openLoop.slice(1).map((v) => nearestVertexIndex(coords, v));
+
+  // (1) out-and-back excursions: drop the via nearest each turnaround tip.
+  for (const [i, j] of findExcursions(coords, cum)) {
     let tip = i;
     let far = 0;
     for (let t = i; t <= j; t++) {
@@ -155,9 +174,25 @@ function removeSpurVias(openLoop: LonLat[], coords: number[][]): LonLat[] {
         bestK = k;
       }
     }
-    if (bestK >= 0) bad.add(bestK + 1); // +1 -> index into openLoop
+    if (bestK >= 0) bad.add(bestK + 1);
   }
 
+  // (2) turnaround at the via itself: come in and leave along nearly the same
+  // path. ~45 m before/after the via ending up within ~25 m means a fold.
+  for (let k = 0; k < viaIndex.length; k++) {
+    const idx = viaIndex[k];
+    const before = vertexAtCum(coords, cum, cum[idx] - 45);
+    const after = vertexAtCum(coords, cum, cum[idx] + 45);
+    if (before && after && hav(before, after) < 25) bad.add(k + 1);
+  }
+
+  return bad;
+}
+
+/** Drop every via that makes the route detour, so the loop stays clean. */
+function removeBadVias(openLoop: LonLat[], coords: number[][]): LonLat[] {
+  const bad = findBadVias(openLoop, coords);
+  if (bad.size === 0) return openLoop;
   const kept = openLoop.filter((_, i) => i === 0 || !bad.has(i));
   return kept.length >= 3 ? kept : openLoop; // always keep start + 2 vias
 }
@@ -196,15 +231,18 @@ async function attempt(
       throw err;
     }
 
-    // One spur-removal pass: drop vias that cause an out-and-back and re-route.
-    // A single pass clears almost all spurs; more rounds mostly just cost time.
-    const cleaned = removeSpurVias(open, result.coordinates);
-    if (cleaned.length !== open.length) {
+    // Drop vias that cause a detour/turnaround and re-route. Two rounds catches
+    // a spur that only appears after the first cleanup shifts a via; each round
+    // is free when there is nothing to clean (no reroute happens).
+    for (let round = 0; round < 2; round++) {
+      const cleaned = removeBadVias(open, result.coordinates);
+      if (cleaned.length === open.length) break;
       try {
         result = await fetchRoute([...cleaned, start], profile, quietness);
         open = cleaned;
       } catch (err) {
         if (!(err instanceof BrouterError)) throw err; // keep uncleaned result
+        break;
       }
     }
 
