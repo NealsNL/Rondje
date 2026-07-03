@@ -17,6 +17,9 @@ npm-debug.log*
 .env
 .env*.local
 
+# exported/test GPX files
+*.gpx
+
 # local SQLite database (route data lives here, not in git)
 /data/*.db
 /data/*.db-shm
