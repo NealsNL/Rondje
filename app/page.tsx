@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { LonLat } from "@/lib/coords";
 import { insertIndexForLineClick } from "@/lib/geo";
+import { toGpxFileName } from "@/lib/gpx";
 import type { Profile } from "@/lib/config";
 import type { Direction } from "@/lib/generate";
 
@@ -30,6 +31,10 @@ export default function Home() {
   const [direction, setDirection] = useState<Direction>("N");
   const [targetKm, setTargetKm] = useState(40);
   const [generating, setGenerating] = useState(false);
+
+  // Route name (used for GPX export and saving)
+  const [routeName, setRouteName] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   // Latest waypoints/route, so map callbacks read fresh values.
   const wpRef = useRef(waypoints);
@@ -145,7 +150,44 @@ export default function Home() {
     }
   }, [direction, targetKm, profile]);
 
+  const exportGpx = useCallback(async () => {
+    if (wpRef.current.length < 2) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/gpx", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          waypoints: wpRef.current,
+          profile,
+          name: routeName || "Route",
+        }),
+      });
+      if (!r.ok) {
+        const d = await r.json();
+        throw new Error(d.error ?? "Export mislukt.");
+      }
+      const text = await r.text();
+      const url = URL.createObjectURL(
+        new Blob([text], { type: "application/gpx+xml" }),
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${toGpxFileName(routeName || "route")}.gpx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  }, [profile, routeName]);
+
   const hasStart = waypoints.length >= 1;
+  const hasRoute = waypoints.length >= 2;
 
   return (
     <>
@@ -246,6 +288,23 @@ export default function Home() {
           {!hasStart && (
             <p className="hint">Klik eerst een startpunt op de kaart.</p>
           )}
+        </div>
+
+        <div className="section">
+          <p className="section-title">Opslaan &amp; exporteren</p>
+          <div className="field">
+            <label>Naam van de route</label>
+            <input
+              type="text"
+              value={routeName}
+              placeholder="Mijn fietsroute"
+              onChange={(e) => setRouteName(e.target.value)}
+            />
+          </div>
+          <button className="btn" onClick={exportGpx} disabled={!hasRoute || exporting}>
+            {exporting ? <span className="spinner" /> : null}
+            {exporting ? "Exporteren…" : "Exporteer GPX"}
+          </button>
         </div>
 
         <div className="section">
