@@ -1,0 +1,28 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+/build
+next-env.d.ts
+*.tsbuildinfo
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+
+# local env files
+.env
+.env*.local
+
+# local SQLite database (route data lives here, not in git)
+/data/*.db
+/data/*.db-shm
+/data/*.db-wal
+
+# BRouter large binaries: downloaded via scripts/download-brouter.ps1, not versioned
+/brouter/segments4/*.rd5
+/brouter/*.jar
+/brouter/jre/
