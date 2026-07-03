@@ -5,11 +5,15 @@ import dynamic from "next/dynamic";
 import type { LonLat } from "@/lib/coords";
 import { insertIndexForLineClick } from "@/lib/geo";
 import type { Profile } from "@/lib/config";
+import type { Direction } from "@/lib/generate";
 
 // Load the map only in the browser (MapLibre needs window).
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
 type Health = "checking" | "ok" | "down";
+
+// Compass layout as a 3x3 grid; "" cells are spacers.
+const COMPASS: (Direction | "")[] = ["NW", "N", "NE", "W", "", "E", "SW", "S", "SE"];
 
 export default function Home() {
   const [waypoints, setWaypoints] = useState<LonLat[]>([]);
@@ -19,7 +23,13 @@ export default function Home() {
   const [profile] = useState<Profile>("paved");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [health, setHealth] = useState<Health>("checking");
+
+  // Generation inputs
+  const [direction, setDirection] = useState<Direction>("N");
+  const [targetKm, setTargetKm] = useState(40);
+  const [generating, setGenerating] = useState(false);
 
   // Latest waypoints/route, so map callbacks read fresh values.
   const wpRef = useRef(waypoints);
@@ -77,6 +87,7 @@ export default function Home() {
   }, [waypoints, profile]);
 
   const handleMapClick = useCallback((p: LonLat) => {
+    setInfo(null);
     const wps = wpRef.current;
     if (wps.length === 0) setWaypoints([p]);
     else if (wps.length === 1) setWaypoints([...wps, p]);
@@ -104,7 +115,37 @@ export default function Home() {
   const clearRoute = useCallback(() => {
     setWaypoints([]);
     setError(null);
+    setInfo(null);
   }, []);
+
+  const generate = useCallback(async () => {
+    const start = wpRef.current[0];
+    if (!start) return;
+    setGenerating(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const r = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ start, direction, distanceKm: targetKm, profile }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Genereren mislukt.");
+      setWaypoints(d.waypoints);
+      if (!d.withinTolerance) {
+        setInfo(
+          `Beste rondrit is ${d.distanceKm.toFixed(1)} km (doel ${targetKm} km). Versleep punten om bij te sturen.`,
+        );
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  }, [direction, targetKm, profile]);
+
+  const hasStart = waypoints.length >= 1;
 
   return (
     <>
@@ -120,7 +161,9 @@ export default function Home() {
       <div className="panel">
         <h1>Routeplanner</h1>
         <p className="subtitle">
-          <span className={`status-dot ${health === "ok" ? "ok" : health === "down" ? "bad" : "wait"}`} />
+          <span
+            className={`status-dot ${health === "ok" ? "ok" : health === "down" ? "bad" : "wait"}`}
+          />
           {health === "ok"
             ? "Routeserver verbonden"
             : health === "down"
@@ -139,16 +182,57 @@ export default function Home() {
             )}
           </div>
           {loading && <p className="hint">Route berekenen…</p>}
+          {info && <p className="hint">{info}</p>}
           {error && <p className="error">{error}</p>}
         </div>
 
         <div className="section">
+          <p className="section-title">Rondrit genereren</p>
+          <div className="field">
+            <label>Richting vanaf het startpunt</label>
+            <div className="compass">
+              {COMPASS.map((d, i) =>
+                d === "" ? (
+                  <button key={i} className="spacer" disabled aria-hidden />
+                ) : (
+                  <button
+                    key={i}
+                    className={direction === d ? "active" : ""}
+                    onClick={() => setDirection(d)}
+                  >
+                    {d}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+          <div className="field">
+            <label>Afstand: {targetKm} km</label>
+            <input
+              type="range"
+              min={5}
+              max={150}
+              step={5}
+              value={targetKm}
+              onChange={(e) => setTargetKm(Number(e.target.value))}
+            />
+          </div>
+          <button
+            className="btn primary"
+            onClick={generate}
+            disabled={!hasStart || generating || health !== "ok"}
+          >
+            {generating ? <span className="spinner" /> : null}
+            {generating ? "Genereren…" : "Genereer rondrit"}
+          </button>
+          {!hasStart && (
+            <p className="hint">Klik eerst een startpunt op de kaart.</p>
+          )}
+        </div>
+
+        <div className="section">
           <div className="btn-row">
-            <button
-              className="btn"
-              onClick={clearRoute}
-              disabled={waypoints.length === 0}
-            >
+            <button className="btn" onClick={clearRoute} disabled={waypoints.length === 0}>
               Nieuwe route
             </button>
           </div>
@@ -156,7 +240,7 @@ export default function Home() {
             {waypoints.length === 0
               ? "Klik op de kaart voor het startpunt."
               : waypoints.length === 1
-                ? "Klik op de kaart voor het eindpunt (mag gelijk zijn aan de start)."
+                ? "Klik op de kaart voor het eindpunt, of genereer hierboven een rondrit."
                 : "Sleep de punten om te schuiven. Klik op de blauwe lijn om een punt toe te voegen. Rechtsklik een punt om het te verwijderen."}
           </p>
         </div>
