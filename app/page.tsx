@@ -20,7 +20,7 @@ export default function Home() {
   const [routeCoords, setRouteCoords] = useState<number[][] | null>(null);
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   const [ascendMeters, setAscendMeters] = useState<number | null>(null);
-  const [profile] = useState<Profile>("paved");
+  const [profile, setProfile] = useState<Profile>("paved");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -184,6 +184,24 @@ export default function Home() {
           {loading && <p className="hint">Route berekenen…</p>}
           {info && <p className="hint">{info}</p>}
           {error && <p className="error">{error}</p>}
+        </div>
+
+        <div className="section">
+          <p className="section-title">Ondergrond</p>
+          <div className="toggle">
+            <button
+              className={profile === "paved" ? "active" : ""}
+              onClick={() => setProfile("paved")}
+            >
+              Verhard
+            </button>
+            <button
+              className={profile === "unpaved" ? "active" : ""}
+              onClick={() => setProfile("unpaved")}
+            >
+              Onverhard
+            </button>
+          </div>
         </div>
 
         <div className="section">
