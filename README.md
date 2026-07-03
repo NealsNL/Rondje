@@ -80,11 +80,15 @@ Open twee terminals in deze map:
 
 ## Hoe je de app gebruikt
 
+- **Rittype:** kies boven in het paneel tussen **Rondje** (terug naar de start)
+  en **Van A naar B** (enkele reis). Bij een rondje sluit de route zichzelf; bij
+  A naar B is het laatste punt het eindpunt.
 - **Startpunt:** klik op de kaart.
-- **Eindpunt:** klik nog een keer (mag hetzelfde zijn als de start voor een
-  rondje).
+- **Tussenstops / eindpunt:** elke volgende klik voegt een punt toe. Bij "Rondje"
+  worden dat tussenstops en keert de route terug naar de start; bij "Van A naar B"
+  is de laatste klik het eindpunt en de rest tussenstops.
 - **Route bijschaven:** sleep een punt om het te verplaatsen, of klik op de
-  blauwe lijn om er een nieuw punt tussen te zetten en sleep dat op zijn plek.
+  route om er een nieuw punt tussen te zetten en sleep dat op zijn plek.
 - **Punt verwijderen:** rechtsklik op een punt.
 - **Afstand:** staat altijd linksboven in beeld en verandert live mee.
 - **Nieuwe route:** wist alles zodat je opnieuw kunt beginnen.

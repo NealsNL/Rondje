@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ongeldige aanvraag." }, { status: 400 });
   }
 
-  const { start, end, direction, distanceKm, profile } = body;
+  const { start, direction, distanceKm, profile } = body;
 
   if (!isProfile(profile)) {
     return NextResponse.json({ error: "Onbekend profiel." }, { status: 400 });
@@ -31,12 +31,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Reuse waypoint validation: start (and optional end) must be valid points.
-  let startPoint, endPoint;
+  // Validate the start point.
+  let startPoint;
   try {
-    const pts = parseWaypoints(end != null ? [start, end] : [start, start]);
-    startPoint = pts[0];
-    endPoint = end != null ? pts[1] : undefined;
+    startPoint = parseWaypoints([start, start])[0];
   } catch {
     return NextResponse.json({ error: "Ongeldig startpunt." }, { status: 400 });
   }
@@ -44,7 +42,6 @@ export async function POST(req: NextRequest) {
   try {
     const result = await generateLoop({
       start: startPoint,
-      end: endPoint,
       direction,
       targetKm,
       profile,

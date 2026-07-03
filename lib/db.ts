@@ -5,13 +5,14 @@ import Database from "better-sqlite3";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { LonLat } from "./coords";
-import type { Profile } from "./config";
+import type { Profile, TripType } from "./config";
 import type { Direction } from "./generate";
 
 export type SavedRouteSummary = {
   id: number;
   name: string;
   profile: Profile;
+  tripType: TripType;
   distanceKm: number | null;
   direction: Direction | null;
   targetKm: number | null;
@@ -41,6 +42,11 @@ function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  // Migration: add trip_type to databases created before this column existed.
+  const cols = db.prepare("PRAGMA table_info(routes)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "trip_type")) {
+    db.exec("ALTER TABLE routes ADD COLUMN trip_type TEXT NOT NULL DEFAULT 'loop'");
+  }
   globalForDb._routeDb = db;
   return db;
 }
@@ -49,6 +55,7 @@ type Row = {
   id: number;
   name: string;
   profile: string;
+  trip_type: string;
   waypoints: string;
   distance_km: number | null;
   direction: string | null;
@@ -61,6 +68,7 @@ function toSummary(r: Row): SavedRouteSummary {
     id: r.id,
     name: r.name,
     profile: r.profile as Profile,
+    tripType: (r.trip_type as TripType) ?? "loop",
     distanceKm: r.distance_km,
     direction: (r.direction as Direction | null) ?? null,
     targetKm: r.target_km,
@@ -68,22 +76,19 @@ function toSummary(r: Row): SavedRouteSummary {
   };
 }
 
+const COLUMNS =
+  "id, name, profile, trip_type, waypoints, distance_km, direction, target_km, created_at";
+
 export function listRoutes(): SavedRouteSummary[] {
   const rows = getDb()
-    .prepare(
-      `SELECT id, name, profile, waypoints, distance_km, direction, target_km, created_at
-       FROM routes ORDER BY id DESC`,
-    )
+    .prepare(`SELECT ${COLUMNS} FROM routes ORDER BY id DESC`)
     .all() as Row[];
   return rows.map(toSummary);
 }
 
 export function getRoute(id: number): SavedRoute | null {
   const r = getDb()
-    .prepare(
-      `SELECT id, name, profile, waypoints, distance_km, direction, target_km, created_at
-       FROM routes WHERE id = ?`,
-    )
+    .prepare(`SELECT ${COLUMNS} FROM routes WHERE id = ?`)
     .get(id) as Row | undefined;
   if (!r) return null;
   return { ...toSummary(r), waypoints: JSON.parse(r.waypoints) as LonLat[] };
@@ -92,6 +97,7 @@ export function getRoute(id: number): SavedRoute | null {
 export function insertRoute(data: {
   name: string;
   profile: Profile;
+  tripType: TripType;
   waypoints: LonLat[];
   distanceKm: number | null;
   direction: Direction | null;
@@ -99,12 +105,13 @@ export function insertRoute(data: {
 }): SavedRoute {
   const info = getDb()
     .prepare(
-      `INSERT INTO routes (name, profile, waypoints, distance_km, direction, target_km)
-       VALUES (@name, @profile, @waypoints, @distanceKm, @direction, @targetKm)`,
+      `INSERT INTO routes (name, profile, trip_type, waypoints, distance_km, direction, target_km)
+       VALUES (@name, @profile, @tripType, @waypoints, @distanceKm, @direction, @targetKm)`,
     )
     .run({
       name: data.name,
       profile: data.profile,
+      tripType: data.tripType,
       waypoints: JSON.stringify(data.waypoints),
       distanceKm: data.distanceKm,
       direction: data.direction,

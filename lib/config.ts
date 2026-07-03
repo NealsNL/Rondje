@@ -10,3 +10,17 @@ export type Profile = (typeof PROFILES)[number];
 export function isProfile(v: unknown): v is Profile {
   return typeof v === "string" && (PROFILES as readonly string[]).includes(v);
 }
+
+/** Trip type: "loop" = rondje back to start, "ptp" = one-way from A to B. */
+export type TripType = "loop" | "ptp";
+
+export function isTripType(v: unknown): v is TripType {
+  return v === "loop" || v === "ptp";
+}
+
+/** Close the waypoint list back to the start when it is a loop. */
+export function routeWaypoints<T>(waypoints: T[], tripType: TripType): T[] {
+  return tripType === "loop" && waypoints.length >= 2
+    ? [...waypoints, waypoints[0]]
+    : waypoints;
+}

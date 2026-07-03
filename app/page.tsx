@@ -7,7 +7,7 @@ import { insertIndexForLineClick } from "@/lib/geo";
 import { toGpxFileName, parseGpxTrack, sampleTrackToWaypoints } from "@/lib/gpx";
 import { computeStats, formatDuration } from "@/lib/stats";
 import ElevationChart from "@/components/ElevationChart";
-import type { Profile } from "@/lib/config";
+import { routeWaypoints, type Profile, type TripType } from "@/lib/config";
 import type { Direction } from "@/lib/generate";
 import type { ColoredSegment, SurfaceBreakdown } from "@/lib/surface";
 
@@ -20,6 +20,7 @@ type SavedRouteSummary = {
   id: number;
   name: string;
   profile: Profile;
+  tripType: TripType;
   distanceKm: number | null;
   direction: Direction | null;
   targetKm: number | null;
@@ -38,6 +39,7 @@ export default function Home() {
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   const [ascendMeters, setAscendMeters] = useState<number | null>(null);
   const [profile, setProfile] = useState<Profile>("paved");
+  const [tripType, setTripType] = useState<TripType>("loop");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -75,6 +77,8 @@ export default function Home() {
   wpRef.current = waypoints;
   const routeRef = useRef(routeCoords);
   routeRef.current = routeCoords;
+  const tripTypeRef = useRef(tripType);
+  tripTypeRef.current = tripType;
 
   // Check the routing server on load.
   useEffect(() => {
@@ -92,9 +96,10 @@ export default function Home() {
   }, []);
   useEffect(() => refreshSaved(), [refreshSaved]);
 
-  // Re-route whenever the waypoints or profile change.
+  // Re-route whenever the waypoints, trip type or profile change.
   useEffect(() => {
-    if (waypoints.length < 2) {
+    const rw = routeWaypoints(waypoints, tripType);
+    if (rw.length < 2) {
       setRouteCoords(null);
       setSegments(null);
       setBreakdown(null);
@@ -109,7 +114,7 @@ export default function Home() {
     fetch("/api/route", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ waypoints, profile }),
+      body: JSON.stringify({ waypoints: rw, profile }),
       signal: ctrl.signal,
     })
       .then(async (r) => {
@@ -142,23 +147,22 @@ export default function Home() {
         if (!ctrl.signal.aborted) setLoading(false);
       });
     return () => ctrl.abort();
-  }, [waypoints, profile]);
+  }, [waypoints, tripType, profile]);
 
+  // Each click on empty map adds the next point: start, then stops, then end.
   const handleMapClick = useCallback((p: LonLat) => {
     setInfo(null);
-    const wps = wpRef.current;
-    if (wps.length === 0) setWaypoints([p]);
-    else if (wps.length === 1) setWaypoints([...wps, p]);
-    // With 2+ points, reshape by clicking the route line instead.
+    setWaypoints((wps) => [...wps, p]);
   }, []);
 
   const handleLineClick = useCallback((p: LonLat) => {
     const wps = wpRef.current;
     const coords = routeRef.current;
     if (!coords) return;
-    const idx = insertIndexForLineClick(coords, wps, p);
+    const rw = routeWaypoints(wps, tripTypeRef.current);
+    const idx = insertIndexForLineClick(coords, rw, p);
     const next = [...wps];
-    next.splice(idx, 0, p);
+    next.splice(Math.min(idx, wps.length), 0, p); // keep inside the open list
     setWaypoints(next);
   }, []);
 
@@ -167,7 +171,7 @@ export default function Home() {
   }, []);
 
   const handleWaypointDelete = useCallback((index: number) => {
-    setWaypoints((wps) => (wps.length <= 2 ? wps : wps.filter((_, i) => i !== index)));
+    setWaypoints((wps) => (wps.length <= 1 ? wps : wps.filter((_, i) => i !== index)));
   }, []);
 
   const clearRoute = useCallback(() => {
@@ -214,6 +218,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Genereren mislukt.");
+      setTripType("loop");
       setWaypoints(d.waypoints);
       setGenMeta({ direction, targetKm });
       if (!d.withinTolerance) {
@@ -229,7 +234,8 @@ export default function Home() {
   }, [direction, targetKm, profile]);
 
   const exportGpx = useCallback(async () => {
-    if (wpRef.current.length < 2) return;
+    const rw = routeWaypoints(wpRef.current, tripTypeRef.current);
+    if (rw.length < 2) return;
     setExporting(true);
     setError(null);
     try {
@@ -237,7 +243,7 @@ export default function Home() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          waypoints: wpRef.current,
+          waypoints: rw,
           profile,
           name: routeName || "Route",
         }),
@@ -281,6 +287,7 @@ export default function Home() {
         body: JSON.stringify({
           name,
           profile,
+          tripType,
           waypoints: wpRef.current,
           distanceKm,
           direction: genMeta?.direction ?? null,
@@ -296,7 +303,7 @@ export default function Home() {
     } finally {
       setSaving(false);
     }
-  }, [routeName, profile, distanceKm, genMeta, refreshSaved]);
+  }, [routeName, profile, tripType, distanceKm, genMeta, refreshSaved]);
 
   const loadRoute = useCallback(async (id: number) => {
     setError(null);
@@ -306,6 +313,7 @@ export default function Home() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Laden mislukt.");
       setProfile(d.profile);
+      setTripType(d.tripType === "ptp" ? "ptp" : "loop");
       setRouteName(d.name);
       if (d.direction && d.targetKm) {
         setGenMeta({ direction: d.direction, targetKm: d.targetKm });
@@ -343,12 +351,13 @@ export default function Home() {
       : "–";
 
   const hasStart = waypoints.length >= 1;
-  const hasRoute = waypoints.length >= 2;
+  const hasRoute = routeWaypoints(waypoints, tripType).length >= 2;
 
   return (
     <>
       <MapView
         waypoints={waypoints}
+        loop={tripType === "loop"}
         segments={segments}
         hoverPoint={hoverPoint}
         onMapClick={handleMapClick}
@@ -369,6 +378,24 @@ export default function Home() {
               ? "Routeserver niet bereikbaar"
               : "Routeserver controleren…"}
         </p>
+
+        <div className="section">
+          <p className="section-title">Rittype</p>
+          <div className="toggle">
+            <button
+              className={tripType === "loop" ? "active" : ""}
+              onClick={() => setTripType("loop")}
+            >
+              Rondje
+            </button>
+            <button
+              className={tripType === "ptp" ? "active" : ""}
+              onClick={() => setTripType("ptp")}
+            >
+              Van A naar B
+            </button>
+          </div>
+        </div>
 
         <div className="section">
           <div className="distance">
@@ -444,6 +471,7 @@ export default function Home() {
           </div>
         </div>
 
+        {tripType === "loop" && (
         <div className="section">
           <p className="section-title">Rondrit genereren</p>
           <div className="field">
@@ -487,6 +515,7 @@ export default function Home() {
             <p className="hint">Klik eerst een startpunt op de kaart.</p>
           )}
         </div>
+        )}
 
         <div className="section">
           <p className="section-title">Opslaan &amp; exporteren</p>
@@ -542,6 +571,7 @@ export default function Home() {
                   </span>
                   <span className="meta">
                     {r.distanceKm != null ? `${r.distanceKm.toFixed(1)} km · ` : ""}
+                    {r.tripType === "ptp" ? "A→B" : "Rondje"} ·{" "}
                     {r.profile === "paved" ? "Verhard" : "Onverhard"}
                   </span>
                   <button
@@ -568,10 +598,14 @@ export default function Home() {
           </div>
           <p className="hint">
             {waypoints.length === 0
-              ? "Klik op de kaart voor het startpunt."
-              : waypoints.length === 1
-                ? "Klik op de kaart voor het eindpunt, of genereer hierboven een rondrit."
-                : "Sleep de punten om te schuiven. Klik op de route om een punt toe te voegen. Rechtsklik een punt om het te verwijderen."}
+              ? tripType === "loop"
+                ? "Klik een startpunt op de kaart, of genereer hieronder een rondje."
+                : "Klik het startpunt op de kaart."
+              : tripType === "ptp" && waypoints.length === 1
+                ? "Klik nu het eindpunt. Extra klikken worden tussenstops."
+                : tripType === "loop"
+                  ? "Klik om tussenstops toe te voegen — de route keert terug naar de start. Sleep punten of klik op de route om bij te sturen."
+                  : "Klik om nog een tussenstop toe te voegen (de laatste is het eindpunt). Sleep of klik op de route om bij te sturen."}
           </p>
         </div>
       </div>

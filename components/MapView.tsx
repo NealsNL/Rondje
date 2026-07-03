@@ -9,6 +9,7 @@ import type { ColoredSegment } from "@/lib/surface";
 
 type Props = {
   waypoints: LonLat[];
+  loop: boolean;
   segments: ColoredSegment[] | null;
   hoverPoint: number[] | null;
   onMapClick: (p: LonLat) => void;
@@ -160,20 +161,23 @@ export default function MapView(props: Props) {
   }, [props.hoverPoint, ready]);
 
   // --- keep markers in sync with the waypoints ---
+  const lastLoopRef = useRef(props.loop);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
     const wps = props.waypoints;
+    const loopChanged = lastLoopRef.current !== props.loop;
+    lastLoopRef.current = props.loop;
 
-    if (markersRef.current.length !== wps.length) {
+    if (markersRef.current.length !== wps.length || loopChanged) {
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = wps.map((wp, i) =>
-        createMarker(map, wp, i, wps.length, live),
+        createMarker(map, wp, i, wps.length, props.loop, live),
       );
     } else {
       wps.forEach((wp, i) => markersRef.current[i].setLngLat([wp.lon, wp.lat]));
     }
-  }, [props.waypoints, ready]);
+  }, [props.waypoints, props.loop, ready]);
 
   return <div id="map" ref={containerRef} />;
 }
@@ -183,14 +187,17 @@ function createMarker(
   wp: LonLat,
   index: number,
   total: number,
+  loop: boolean,
   live: React.RefObject<Props>,
 ): maplibregl.Marker {
   const el = document.createElement("div");
-  const role = index === 0 ? "start" : index === total - 1 ? "end" : "via";
+  // In a loop there is no separate end marker (start is also the finish).
+  const role =
+    index === 0 ? "start" : !loop && index === total - 1 ? "end" : "via";
   el.className = `wp-marker ${role}`;
   el.title =
     role === "via"
-      ? "Sleep om te verplaatsen · rechtsklik om te verwijderen"
+      ? "Tussenstop · sleep om te verplaatsen, rechtsklik om te verwijderen"
       : role === "start"
         ? "Startpunt"
         : "Eindpunt";

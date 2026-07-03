@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listRoutes, insertRoute } from "@/lib/db";
-import { isProfile } from "@/lib/config";
+import { isProfile, isTripType } from "@/lib/config";
 import { isDirection } from "@/lib/generate";
 import { parseWaypoints } from "@/lib/request";
 
@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
   const saved = insertRoute({
     name,
     profile: body.profile,
+    tripType: isTripType(body.tripType) ? body.tripType : "loop",
     waypoints,
     distanceKm,
     direction,
