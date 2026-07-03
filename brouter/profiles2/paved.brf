@@ -114,6 +114,17 @@ assign probablyGood = or ispaved and ( or isbike highway=footway ) not isunpaved
 assign unpaved_penalty = 5.0
 assign surface_bias = if isunpaved then unpaved_penalty else 0
 
+# --- QUIET ROADS (avoid busy through-roads) ---
+# busy_road_penalty is templated per "quietness" level by the app (0 = off).
+# It adds extra cost on bigger roads so routes prefer calm lanes and cycleways.
+assign busy_road_penalty = 0
+assign busy_road_term =
+     if      highway=trunk|trunk_link         then multiply busy_road_penalty 3
+     else if highway=primary|primary_link     then multiply busy_road_penalty 2
+     else if highway=secondary|secondary_link then multiply busy_road_penalty 1
+     else if highway=tertiary|tertiary_link   then multiply busy_road_penalty 0.5
+     else 0
+
 
 #
 # this is the cost (in Meter) for a 90-degree turn
@@ -311,6 +322,9 @@ assign costfactor
 
   # strongly avoid unpaved surfaces (see SURFACE PREFERENCE block above)
   add surface_bias
+
+  # avoid busy through-roads (see QUIET ROADS block above)
+  add busy_road_term
 
   #
   # apply oneway-and access-penalties

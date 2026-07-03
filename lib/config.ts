@@ -11,6 +11,13 @@ export function isProfile(v: unknown): v is Profile {
   return typeof v === "string" && (PROFILES as readonly string[]).includes(v);
 }
 
+/** Quiet-roads slider: 0 = direct, 3 = avoid busy roads as much as possible. */
+export function clampQuietness(v: unknown): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(3, n));
+}
+
 /** Trip type: "loop" = rondje back to start, "ptp" = one-way from A to B. */
 export type TripType = "loop" | "ptp";
 

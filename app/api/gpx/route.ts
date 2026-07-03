@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchGpx, BrouterError } from "@/lib/brouter";
-import { isProfile } from "@/lib/config";
+import { clampQuietness, isProfile } from "@/lib/config";
 import { parseWaypoints } from "@/lib/request";
 import { setGpxTrackName } from "@/lib/gpx";
 
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ongeldige aanvraag." }, { status: 400 });
   }
 
-  const { waypoints, profile, name } = body;
+  const { waypoints, profile, name, quietness } = body;
   if (!isProfile(profile)) {
     return NextResponse.json({ error: "Onbekend profiel." }, { status: 400 });
   }
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const gpx = await fetchGpx(points, profile);
+    const gpx = await fetchGpx(points, profile, clampQuietness(quietness));
     const named = setGpxTrackName(gpx, typeof name === "string" ? name : "Route");
     return new NextResponse(named, {
       status: 200,

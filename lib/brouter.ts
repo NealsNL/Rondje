@@ -3,9 +3,40 @@
 // which use the functions below.
 
 import "server-only";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { BROUTER_URL, type Profile } from "./config";
 import { toLonLatsParam, type LonLat } from "./coords";
 import { buildSurfaceInfo, type SurfaceInfo } from "./surface";
+
+// "Quiet roads" is a slider (0 = direct, 3 = very quiet). BRouter ignores URL
+// profile parameters, so we template a profile variant with the matching
+// busy-road penalty and route with that. Variants are written once and reused.
+const PROFILE_DIR = join(process.cwd(), "brouter", "profiles2");
+const QUIET_PENALTY = [0, 1, 2, 3.5];
+
+function resolveProfileName(profile: Profile, quietness: number): string {
+  const q = Math.max(0, Math.min(3, Math.round(quietness || 0)));
+  if (q === 0) return profile;
+  const name = `${profile}-q${q}`;
+  const file = join(PROFILE_DIR, `${name}.brf`);
+  try {
+    if (!existsSync(file)) {
+      const base = readFileSync(join(PROFILE_DIR, `${profile}.brf`), "utf8");
+      writeFileSync(
+        file,
+        base.replace(
+          /assign\s+busy_road_penalty\s*=\s*[\d.]+/,
+          `assign busy_road_penalty = ${QUIET_PENALTY[q]}`,
+        ),
+        "utf8",
+      );
+    }
+    return name;
+  } catch {
+    return profile; // fall back to the base profile on any filesystem error
+  }
+}
 
 export type RouteResult = {
   /** Route geometry as GeoJSON coordinates: [lon, lat, elevation]. */
@@ -24,12 +55,12 @@ export class BrouterError extends Error {}
 
 function buildUrl(
   points: LonLat[],
-  profile: Profile,
+  profileName: string,
   format: "geojson" | "gpx",
 ): string {
   const params = new URLSearchParams({
     lonlats: toLonLatsParam(points),
-    profile,
+    profile: profileName,
     alternativeidx: "0",
     format,
   });
@@ -40,11 +71,12 @@ async function requestBrouter(
   points: LonLat[],
   profile: Profile,
   format: "geojson" | "gpx",
+  quietness: number,
 ): Promise<string> {
   if (points.length < 2) {
     throw new BrouterError("Een route heeft minstens twee punten nodig.");
   }
-  const url = buildUrl(points, profile, format);
+  const url = buildUrl(points, resolveProfileName(profile, quietness), format);
 
   let res: Response;
   try {
@@ -85,8 +117,9 @@ function cleanupBrouterMessage(body: string): string {
 export async function fetchRoute(
   points: LonLat[],
   profile: Profile,
+  quietness = 0,
 ): Promise<RouteResult> {
-  const body = await requestBrouter(points, profile, "geojson");
+  const body = await requestBrouter(points, profile, "geojson", quietness);
 
   let json: BrouterGeoJson;
   try {
@@ -119,8 +152,9 @@ export async function fetchRoute(
 export async function fetchGpx(
   points: LonLat[],
   profile: Profile,
+  quietness = 0,
 ): Promise<string> {
-  return requestBrouter(points, profile, "gpx");
+  return requestBrouter(points, profile, "gpx", quietness);
 }
 
 // Minimal shape of the BRouter GeoJSON response we rely on.

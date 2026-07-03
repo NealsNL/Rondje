@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateLoop, isDirection } from "@/lib/generate";
 import { BrouterError } from "@/lib/brouter";
-import { isProfile } from "@/lib/config";
+import { clampQuietness, isProfile } from "@/lib/config";
 import { parseWaypoints } from "@/lib/request";
 
 // POST { start:{lon,lat}, end?:{lon,lat}, direction:"N".."NW",
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ongeldige aanvraag." }, { status: 400 });
   }
 
-  const { start, direction, distanceKm, profile } = body;
+  const { start, direction, distanceKm, profile, quietness } = body;
 
   if (!isProfile(profile)) {
     return NextResponse.json({ error: "Onbekend profiel." }, { status: 400 });
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       direction,
       targetKm,
       profile,
+      quietness: clampQuietness(quietness),
     });
     return NextResponse.json(result);
   } catch (err) {

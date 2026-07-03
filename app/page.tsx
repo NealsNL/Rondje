@@ -30,6 +30,22 @@ type SavedRouteSummary = {
 // Compass layout as a 3x3 grid; "" cells are spacers.
 const COMPASS: (Direction | "")[] = ["NW", "N", "NE", "W", "", "E", "SW", "S", "SE"];
 
+// The eight compass directions clockwise from North, for wind calculations.
+const DIRS8: Direction[] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+function compass8(deg: number): Direction {
+  return DIRS8[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+}
+const DIR_NL: Record<Direction, string> = {
+  N: "het noorden",
+  NE: "het noordoosten",
+  E: "het oosten",
+  SE: "het zuidoosten",
+  S: "het zuiden",
+  SW: "het zuidwesten",
+  W: "het westen",
+  NW: "het noordwesten",
+};
+
 export default function Home() {
   const [waypoints, setWaypoints] = useState<LonLat[]>([]);
   const [routeCoords, setRouteCoords] = useState<number[][] | null>(null);
@@ -39,6 +55,8 @@ export default function Home() {
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   const [ascendMeters, setAscendMeters] = useState<number | null>(null);
   const [profile, setProfile] = useState<Profile>("paved");
+  // Quiet-roads preference: 0 = direct, 3 = avoid busy roads as much as possible.
+  const [quietness, setQuietness] = useState(0);
   const [tripType, setTripType] = useState<TripType>("loop");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +67,15 @@ export default function Home() {
   const [direction, setDirection] = useState<Direction>("N");
   const [targetKm, setTargetKm] = useState(40);
   const [generating, setGenerating] = useState(false);
+  // Wind-smart loop: ride out into the wind, return with it at your back.
+  const [windAware, setWindAware] = useState(false);
+  useEffect(() => {
+    setWindAware(localStorage.getItem("windAware") === "1");
+  }, []);
+  const changeWindAware = useCallback((v: boolean) => {
+    setWindAware(v);
+    localStorage.setItem("windAware", v ? "1" : "0");
+  }, []);
 
   // Personal average speed (km/h), remembered between sessions.
   const [avgSpeed, setAvgSpeed] = useState(25);
@@ -60,6 +87,17 @@ export default function Home() {
     const s = Math.max(5, Math.min(60, v));
     setAvgSpeed(s);
     localStorage.setItem("avgSpeed", String(s));
+  }, []);
+
+  // Quiet-roads preference, remembered between sessions.
+  useEffect(() => {
+    const saved = Number(localStorage.getItem("quietness"));
+    if (Number.isFinite(saved) && saved >= 0 && saved <= 3) setQuietness(saved);
+  }, []);
+  const changeQuietness = useCallback((v: number) => {
+    const q = Math.max(0, Math.min(3, Math.round(v)));
+    setQuietness(q);
+    localStorage.setItem("quietness", String(q));
   }, []);
 
   // Route name + saving/exporting
@@ -157,7 +195,7 @@ export default function Home() {
     fetch("/api/route", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ waypoints: rw, profile }),
+      body: JSON.stringify({ waypoints: rw, profile, quietness }),
       signal: ctrl.signal,
     })
       .then(async (r) => {
@@ -190,7 +228,7 @@ export default function Home() {
         if (!ctrl.signal.aborted) setLoading(false);
       });
     return () => ctrl.abort();
-  }, [waypoints, tripType, closeLoop, profile]);
+  }, [waypoints, tripType, closeLoop, profile, quietness]);
 
   // Rondje: one clear start point (the loop itself is generated). A→B: each
   // click adds the next point the route rides through.
@@ -313,11 +351,36 @@ export default function Home() {
     setGenerating(true);
     setError(null);
     setInfo(null);
+
+    // Wind-smart: pick the outbound direction into the wind so the tougher leg
+    // is first and you ride home with the wind at your back.
+    let dir = direction;
+    let windMsg = "";
+    if (windAware) {
+      try {
+        const w = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${start.lat}&longitude=${start.lon}&current=wind_speed_10m,wind_direction_10m`,
+        );
+        const wj = await w.json();
+        const spd = Number(wj?.current?.wind_speed_10m);
+        const from = Number(wj?.current?.wind_direction_10m);
+        if (Number.isFinite(from) && Number.isFinite(spd) && spd >= 8) {
+          dir = compass8(from); // wind_direction is where the wind comes FROM
+          setDirection(dir);
+          windMsg = `Wind uit ${DIR_NL[dir]} (${Math.round(spd)} km/u): op de heenweg tegen de wind in, met de wind terug.`;
+        } else if (Number.isFinite(spd)) {
+          windMsg = `Weinig wind (${Math.round(spd)} km/u) — de richting maakt nu weinig uit.`;
+        }
+      } catch {
+        /* geen internet/wind beschikbaar: gebruik de gekozen richting */
+      }
+    }
+
     try {
       const r = await fetch("/api/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ start, direction, distanceKm: targetKm, profile }),
+        body: JSON.stringify({ start, direction: dir, distanceKm: targetKm, profile, quietness }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Genereren mislukt.");
@@ -325,19 +388,19 @@ export default function Home() {
       setTripType("loop");
       setCloseLoop(false);
       setWaypoints(d.waypoints);
-      setGenMeta({ direction, targetKm });
+      setGenMeta({ direction: dir, targetKm });
       setFitToken((n) => n + 1);
-      if (!d.withinTolerance) {
-        setInfo(
-          `Beste rondrit is ${d.distanceKm.toFixed(1)} km (doel ${targetKm} km). Versleep punten om bij te sturen.`,
-        );
-      }
+      const tail = d.withinTolerance
+        ? ""
+        : `Beste rondrit is ${d.distanceKm.toFixed(1)} km (doel ${targetKm} km). Versleep punten om bij te sturen.`;
+      const msg = [windMsg, tail].filter(Boolean).join(" ");
+      if (msg) setInfo(msg);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setGenerating(false);
     }
-  }, [direction, targetKm, profile]);
+  }, [direction, targetKm, profile, quietness, windAware]);
 
   const exportGpx = useCallback(async () => {
     const closing =
@@ -354,6 +417,7 @@ export default function Home() {
         body: JSON.stringify({
           waypoints: rw,
           profile,
+          quietness,
           name: routeName || "Route",
         }),
       });
@@ -377,7 +441,7 @@ export default function Home() {
     } finally {
       setExporting(false);
     }
-  }, [profile, routeName]);
+  }, [profile, routeName, quietness]);
 
   const saveRoute = useCallback(async () => {
     if (wpRef.current.length < 2) return;
@@ -665,13 +729,40 @@ export default function Home() {
               Onverhard
             </button>
           </div>
+          <div className="field">
+            <label>
+              Wegen: {["direct", "iets rustiger", "rustig", "zo rustig mogelijk"][quietness]}
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={3}
+              step={1}
+              value={quietness}
+              onChange={(e) => changeQuietness(Number(e.target.value))}
+            />
+            <p className="hint">
+              Rustiger mijdt drukke wegen — de route wordt dan soms wat langer.
+            </p>
+          </div>
         </div>
 
         {tripType === "loop" && (
         <div className="section">
           <p className="section-title">Rondrit genereren</p>
+          <label className="wind-toggle">
+            <input
+              type="checkbox"
+              checked={windAware}
+              onChange={(e) => changeWindAware(e.target.checked)}
+            />
+            <span>Wind-slim rondje — heenweg tegen de wind in</span>
+          </label>
           <div className="field">
-            <label>Richting vanaf het startpunt</label>
+            <label>
+              Richting vanaf het startpunt
+              {windAware ? " (wordt op de wind gekozen)" : ""}
+            </label>
             <div className="compass">
               {COMPASS.map((d, i) =>
                 d === "" ? (

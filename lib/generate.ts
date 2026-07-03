@@ -176,15 +176,18 @@ async function attempt(
   bearing: number,
   targetKm: number,
   profile: Profile,
+  quietness: number,
+  maxIter = MAX_ITERATIONS,
 ): Promise<Attempt | null> {
   let radius = 0.15 * targetKm * 1000;
   let best: Attempt | null = null;
+  let stale = 0; // consecutive iterations that didn't meaningfully improve
 
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
+  for (let i = 0; i < maxIter; i++) {
     let open = buildLoop(start, bearing, radius);
     let result: RouteResult;
     try {
-      result = await fetchRoute([...open, start], profile); // close to measure
+      result = await fetchRoute([...open, start], profile, quietness); // close to measure
     } catch (err) {
       if (err instanceof BrouterError) {
         radius *= 0.8;
@@ -193,24 +196,30 @@ async function attempt(
       throw err;
     }
 
-    // Drop vias that cause an out-and-back and re-route (a couple of rounds).
-    for (let round = 0; round < 2; round++) {
-      const cleaned = removeSpurVias(open, result.coordinates);
-      if (cleaned.length === open.length) break;
+    // One spur-removal pass: drop vias that cause an out-and-back and re-route.
+    // A single pass clears almost all spurs; more rounds mostly just cost time.
+    const cleaned = removeSpurVias(open, result.coordinates);
+    if (cleaned.length !== open.length) {
       try {
-        result = await fetchRoute([...cleaned, start], profile);
+        result = await fetchRoute([...cleaned, start], profile, quietness);
         open = cleaned;
       } catch (err) {
-        if (err instanceof BrouterError) break;
-        throw err;
+        if (!(err instanceof BrouterError)) throw err; // keep uncleaned result
       }
     }
 
     const actual = result.distanceKm || 0.0001;
     const err = Math.abs(actual - targetKm) / targetKm;
     const spur = spurMeters(result.coordinates);
+    const improved = !best || err < best.err - 0.005;
     if (!best || err < best.err) best = { open, result, err, spur };
-    if (err <= TOLERANCE && spur < 200) break;
+    // Stop as soon as the distance is right; small out-and-backs are acceptable.
+    if (err <= TOLERANCE && spur < 400) break;
+    // Long loops sometimes oscillate around the target without ever landing in
+    // tolerance. Once we stop improving, keep the best so far instead of burning
+    // more (slow) routing calls — this is what made long rides feel sluggish.
+    stale = improved ? 0 : stale + 1;
+    if (stale >= 2) break;
 
     const factor = Math.max(0.5, Math.min(2, targetKm / actual));
     radius *= factor;
@@ -223,19 +232,22 @@ export async function generateLoop(opts: {
   direction: Direction;
   targetKm: number;
   profile: Profile;
+  quietness?: number;
 }): Promise<GenerateResult> {
-  const { start, direction, targetKm, profile } = opts;
+  const { start, direction, targetKm, profile, quietness = 0 } = opts;
   const bearing = BEARINGS[direction];
 
-  let best = await attempt(start, bearing, targetKm, profile);
+  let best = await attempt(start, bearing, targetKm, profile, quietness);
 
-  // If the requested direction still doubles back (e.g. wedged against water),
-  // try nearby directions and keep the cleanest loop.
-  if (best && best.spur > 300) {
-    for (const off of [30, -30, 60, -60]) {
-      const alt = await attempt(start, (bearing + off + 360) % 360, targetKm, profile);
+  // If the requested direction still doubles back badly (e.g. wedged against
+  // water), try a couple of nearby directions and keep the cleanest loop. This
+  // is what rescues hard/long loops, so we always run it when needed. Sequential
+  // on purpose: BRouter is CPU-bound, so running these at once only slows both.
+  if (best && best.spur > 500) {
+    for (const off of [35, -35]) {
+      const alt = await attempt(start, (bearing + off + 360) % 360, targetKm, profile, quietness, 4);
       if (alt && alt.spur < best.spur - 100) best = alt;
-      if (best.spur < 200) break;
+      if (best.spur < 300) break;
     }
   }
 

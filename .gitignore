@@ -23,6 +23,9 @@ npm-debug.log*
 # throwaway local test scripts
 scripts/_*.mjs
 
+# quiet-road profile variants generated at runtime from paved.brf / unpaved.brf
+brouter/profiles2/*-q*.brf
+
 # local SQLite database (route data lives here, not in git)
 /data/*.db
 /data/*.db-shm

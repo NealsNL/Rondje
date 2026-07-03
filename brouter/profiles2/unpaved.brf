@@ -257,6 +257,14 @@ assign townpenalty
         switch estimated_town_class=5  2.0
         switch estimated_town_class=6  2.2 1 1
 
+# --- QUIET ROADS (avoid busy through-roads) ---
+# busy_road_penalty is templated per "quietness" level by the app (0 = off).
+assign busy_road_penalty = 0
+assign busy_road_mult
+    switch highway=trunk|trunk_link  ( add 1 multiply 1.5 busy_road_penalty )
+    switch is_main_road              ( add 1 busy_road_penalty )
+    1
+
 assign costfactor
     multiply notcycleroutepenalty multiply noriverpenalty
     multiply notcyclewaypenalty multiply maxspeedpenalty
@@ -267,6 +275,7 @@ assign costfactor
     multiply switch bicycle=use_sidepath 1.6 1
     multiply switch nobikeaccess 6 1
     multiply tracktypepenalty
+    multiply busy_road_mult
     switch or highway=motorway|motorway_link motorroad=yes      10000
     switch    and nobikeaccess nofootaccess                     10000
     switch    highway= switch not route=ferry                   10000 2
