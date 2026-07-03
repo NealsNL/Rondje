@@ -357,6 +357,50 @@ button {
   height: 14px;
 }
 
+/* Ride stats row */
+.stats {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 8px;
+}
+.stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 4px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  text-align: center;
+}
+.stat .k {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.stat .v {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.speed-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.speed-field input {
+  width: 56px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  text-align: center;
+}
+
 /* Surface breakdown bar */
 .surface {
   margin: 10px 0 2px;

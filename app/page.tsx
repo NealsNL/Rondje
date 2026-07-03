@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { LonLat } from "@/lib/coords";
 import { insertIndexForLineClick } from "@/lib/geo";
 import { toGpxFileName } from "@/lib/gpx";
+import { computeStats, formatDuration } from "@/lib/stats";
 import ElevationChart from "@/components/ElevationChart";
 import type { Profile } from "@/lib/config";
 import type { Direction } from "@/lib/generate";
@@ -45,6 +46,18 @@ export default function Home() {
   const [direction, setDirection] = useState<Direction>("N");
   const [targetKm, setTargetKm] = useState(40);
   const [generating, setGenerating] = useState(false);
+
+  // Personal average speed (km/h), remembered between sessions.
+  const [avgSpeed, setAvgSpeed] = useState(25);
+  useEffect(() => {
+    const saved = Number(localStorage.getItem("avgSpeed"));
+    if (Number.isFinite(saved) && saved >= 5 && saved <= 60) setAvgSpeed(saved);
+  }, []);
+  const changeSpeed = useCallback((v: number) => {
+    const s = Math.max(5, Math.min(60, v));
+    setAvgSpeed(s);
+    localStorage.setItem("avgSpeed", String(s));
+  }, []);
 
   // Route name + saving/exporting
   const [routeName, setRouteName] = useState("");
@@ -296,6 +309,15 @@ export default function Home() {
     [refreshSaved],
   );
 
+  const stats = useMemo(
+    () => (routeCoords ? computeStats(routeCoords, ascendMeters) : null),
+    [routeCoords, ascendMeters],
+  );
+  const rideTime =
+    distanceKm != null && avgSpeed > 0
+      ? formatDuration((distanceKm / avgSpeed) * 60)
+      : "–";
+
   const hasStart = waypoints.length >= 1;
   const hasRoute = waypoints.length >= 2;
 
@@ -334,6 +356,35 @@ export default function Home() {
             )}
           </div>
           {breakdown && <SurfaceBar breakdown={breakdown} />}
+          {distanceKm != null && stats && (
+            <>
+              <div className="stats">
+                <div className="stat">
+                  <span className="k">Tijd</span>
+                  <span className="v">{rideTime}</span>
+                </div>
+                <div className="stat">
+                  <span className="k">Daling</span>
+                  <span className="v">↓ {stats.descentMeters} m</span>
+                </div>
+                <div className="stat">
+                  <span className="k">Steilste</span>
+                  <span className="v">{stats.maxGradientPct.toFixed(1).replace(".", ",")}%</span>
+                </div>
+              </div>
+              <div className="speed-field">
+                <span>Bij</span>
+                <input
+                  type="number"
+                  min={5}
+                  max={60}
+                  value={avgSpeed}
+                  onChange={(e) => changeSpeed(Number(e.target.value))}
+                />
+                <span>km/u gemiddeld</span>
+              </div>
+            </>
+          )}
           {loading && <p className="hint">Route berekenen…</p>}
           {info && <p className="hint">{info}</p>}
           {error && <p className="error">{error}</p>}
