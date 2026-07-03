@@ -30,6 +30,17 @@ type SavedRouteSummary = {
 // Compass layout as a 3x3 grid; "" cells are spacers.
 const COMPASS: (Direction | "")[] = ["NW", "N", "NE", "W", "", "E", "SW", "S", "SE"];
 
+function metersBetween(a: LonLat, b: LonLat): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 export default function Home() {
   const [waypoints, setWaypoints] = useState<LonLat[]>([]);
   const [routeCoords, setRouteCoords] = useState<number[][] | null>(null);
@@ -189,6 +200,15 @@ export default function Home() {
           setSegments([{ surface: "paved", coordinates: d.coordinates }]);
           setBreakdown(null);
         }
+        // The server drops waypoints that made the route poke out and back; mirror
+        // that here so our markers stay on the cleaned route (no floating points).
+        if (Array.isArray(d.keptIndices) && d.keptIndices.length < rw.length) {
+          const keep = new Set<number>(d.keptIndices);
+          const cleaned = waypoints.filter((_, i) => keep.has(i));
+          if (cleaned.length >= 1 && cleaned.length < waypoints.length) {
+            setWaypoints(cleaned);
+          }
+        }
       })
       .catch((e: Error) => {
         if (e.name === "AbortError") return;
@@ -308,7 +328,12 @@ export default function Home() {
     try {
       const track = parseGpxTrack(await file.text());
       if (track.length < 2) throw new Error("Geen route gevonden in dit GPX-bestand.");
+      // A track whose start and finish nearly meet is a loop; otherwise it is a
+      // one-way A→B ride. Pick the matching mode so it isn't forced to close
+      // back to the start (which would retrace the whole track).
+      const isLoop = metersBetween(track[0], track[track.length - 1]) < 250;
       setGenMeta(null);
+      setTripType(isLoop ? "loop" : "ptp");
       setCloseLoop(false);
       setRouteName(file.name.replace(/\.gpx$/i, ""));
       pushHistory();

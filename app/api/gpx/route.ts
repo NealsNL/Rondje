@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchGpx, BrouterError } from "@/lib/brouter";
+import { routeWithoutDetours } from "@/lib/generate";
 import { clampQuietness, isProfile } from "@/lib/config";
 import { parseWaypoints } from "@/lib/request";
 import { setGpxTrackName } from "@/lib/gpx";
@@ -29,7 +30,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const gpx = await fetchGpx(points, profile, clampQuietness(quietness));
+    const q = clampQuietness(quietness);
+    // Export the same clean route the app shows: drop detour waypoints first.
+    const { points: clean } = await routeWithoutDetours(points, profile, q);
+    const gpx = await fetchGpx(clean, profile, q);
     const named = setGpxTrackName(gpx, typeof name === "string" ? name : "Route");
     return new NextResponse(named, {
       status: 200,

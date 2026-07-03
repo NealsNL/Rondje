@@ -141,20 +141,24 @@ function vertexAtCum(coords: number[][], cum: number[], target: number): number[
 }
 
 /**
- * Vias that make the route detour instead of ride through. Two kinds:
+ * Waypoints that make the route detour instead of ride through, among the ones
+ * `isCandidate` allows to be dropped. Two kinds are detected:
  *  - out-and-back excursions (the route leaves the path and returns to it);
- *  - turnarounds (the route reaches the via and comes straight back, so the
- *    path a little before and after the via is almost the same place). The
- *    second catches short dead-end spurs the excursion test is too coarse for.
- * Returned as indices into openLoop (never index 0, the start).
+ *  - turnarounds (the route reaches the waypoint and comes straight back, so the
+ *    path a little before and after it is almost the same place). The second
+ *    catches short dead-end spurs the excursion test is too coarse for.
  */
-function findBadVias(openLoop: LonLat[], coords: number[][]): Set<number> {
+function detourWaypoints(
+  points: LonLat[],
+  coords: number[][],
+  isCandidate: (k: number) => boolean,
+): Set<number> {
   const bad = new Set<number>();
-  if (coords.length < 4 || openLoop.length <= 3) return bad;
+  if (coords.length < 4 || points.length < 3) return bad;
   const cum = cumulativeMeters(coords);
-  const viaIndex = openLoop.slice(1).map((v) => nearestVertexIndex(coords, v));
+  const idxOf = points.map((p) => nearestVertexIndex(coords, p));
 
-  // (1) out-and-back excursions: drop the via nearest each turnaround tip.
+  // (1) out-and-back excursions: drop the candidate waypoint nearest each tip.
   for (const [i, j] of findExcursions(coords, cum)) {
     let tip = i;
     let far = 0;
@@ -167,34 +171,74 @@ function findBadVias(openLoop: LonLat[], coords: number[][]): Set<number> {
     }
     let bestK = -1;
     let bestD = Infinity;
-    for (let k = 0; k < viaIndex.length; k++) {
-      const d = Math.abs(viaIndex[k] - tip);
+    for (let k = 0; k < points.length; k++) {
+      if (!isCandidate(k)) continue;
+      const d = Math.abs(idxOf[k] - tip);
       if (d < bestD) {
         bestD = d;
         bestK = k;
       }
     }
-    if (bestK >= 0) bad.add(bestK + 1);
+    if (bestK >= 0) bad.add(bestK);
   }
 
-  // (2) turnaround at the via itself: come in and leave along nearly the same
-  // path. ~45 m before/after the via ending up within ~25 m means a fold.
-  for (let k = 0; k < viaIndex.length; k++) {
-    const idx = viaIndex[k];
+  // (2) turnaround at the waypoint: come in and leave along nearly the same
+  // path. ~45 m before/after ending up within ~25 m means a fold.
+  for (let k = 0; k < points.length; k++) {
+    if (!isCandidate(k)) continue;
+    const idx = idxOf[k];
     const before = vertexAtCum(coords, cum, cum[idx] - 45);
     const after = vertexAtCum(coords, cum, cum[idx] + 45);
-    if (before && after && hav(before, after) < 25) bad.add(k + 1);
+    if (before && after && hav(before, after) < 25) bad.add(k);
   }
 
   return bad;
 }
 
-/** Drop every via that makes the route detour, so the loop stays clean. */
+/** Drop every via that makes a generated loop detour (always keeps the start). */
 function removeBadVias(openLoop: LonLat[], coords: number[][]): LonLat[] {
-  const bad = findBadVias(openLoop, coords);
+  if (openLoop.length <= 3) return openLoop;
+  const bad = detourWaypoints(openLoop, coords, (k) => k >= 1);
   if (bad.size === 0) return openLoop;
-  const kept = openLoop.filter((_, i) => i === 0 || !bad.has(i));
+  const kept = openLoop.filter((_, i) => !bad.has(i));
   return kept.length >= 3 ? kept : openLoop; // always keep start + 2 vias
+}
+
+/**
+ * Route through `points`, then drop any intermediate waypoint that makes the
+ * route poke out and back (a dead-end spur) and re-route — repeated until the
+ * route is clean or a few rounds pass. The endpoints are never dropped. Returns
+ * the surviving waypoints, the indices of the input that survived, and the final
+ * route. Every route the app draws or exports goes through here, so a spur can
+ * never reach the final route.
+ */
+export async function routeWithoutDetours(
+  points: LonLat[],
+  profile: Profile,
+  quietness = 0,
+): Promise<{ points: LonLat[]; keptIndices: number[]; result: RouteResult }> {
+  let pts = points;
+  let idx = points.map((_, i) => i);
+  let result = await fetchRoute(pts, profile, quietness);
+  const originalKm = result.distanceKm;
+
+  for (let round = 0; round < 3; round++) {
+    const bad = detourWaypoints(pts, result.coordinates, (k) => k > 0 && k < pts.length - 1);
+    if (bad.size === 0) break;
+    const nextPts = pts.filter((_, k) => !bad.has(k));
+    if (nextPts.length < 2 || nextPts.length === pts.length) break;
+    const nextResult = await fetchRoute(nextPts, profile, quietness);
+    // Removing a spur should only shave a bit off. If cleaning would slash the
+    // route (below half the original), the "spur" is really most of the ride —
+    // e.g. a deliberate there-and-back — so stop and keep what we have.
+    if (nextResult.distanceKm < 0.5 * originalKm) break;
+    const nextIdx = idx.filter((_, k) => !bad.has(k));
+    result = nextResult;
+    pts = nextPts;
+    idx = nextIdx;
+  }
+
+  return { points: pts, keptIndices: idx, result };
 }
 
 type Attempt = { open: LonLat[]; result: RouteResult; err: number; spur: number };

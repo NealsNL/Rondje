@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchRoute, BrouterError } from "@/lib/brouter";
+import { BrouterError } from "@/lib/brouter";
+import { routeWithoutDetours } from "@/lib/generate";
 import { clampQuietness, isProfile } from "@/lib/config";
 import { parseWaypoints } from "@/lib/request";
 
@@ -29,8 +30,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await fetchRoute(points, profile, clampQuietness(quietness));
-    return NextResponse.json(result);
+    const { result, keptIndices } = await routeWithoutDetours(
+      points,
+      profile,
+      clampQuietness(quietness),
+    );
+    // keptIndices lets the client drop the same detour-causing waypoints, so its
+    // markers match the cleaned route.
+    return NextResponse.json({ ...result, keptIndices });
   } catch (err) {
     const status = err instanceof BrouterError ? 422 : 500;
     return NextResponse.json(
