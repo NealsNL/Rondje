@@ -89,6 +89,22 @@ Open twee terminals in deze map:
 - **Afstand:** staat altijd linksboven in beeld en verandert live mee.
 - **Nieuwe route:** wist alles zodat je opnieuw kunt beginnen.
 
+### Voor op de fiets
+
+- **Ondergrond in kleur:** de route is groen waar hij verhard is, geel bij
+  halfverhard (stevig grind) en oranje waar hij onverhard wordt. Eronder zie je
+  het percentage verhard / half / onverhard — zo weet je vooraf waar je van het
+  asfalt af gaat.
+- **Rijtijd:** vul bij "km/u gemiddeld" je eigen snelheid in; de tijd rekent
+  daarmee. Je snelheid wordt onthouden.
+- **Klim, daling en steilste stuk:** staan naast de tijd.
+- **Hoogteprofiel:** beweeg met je muis over de grafiek — je ziet de hoogte,
+  afstand en het stijgingspercentage op dat punt, en een stip op de kaart laat
+  precies zien waar je bent.
+- **Omdraaien:** rijdt hetzelfde rondje de andere kant op.
+- **GPX importeren:** laad een bestaande route in om hem aan te passen en opnieuw
+  te exporteren.
+
 ---
 
 ## Kaartdata (segmenten)
